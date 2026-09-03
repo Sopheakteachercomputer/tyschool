@@ -174,6 +174,7 @@ export interface User {
 
 export interface Student {
   id: string;
+  no?: number | string;
   studentCode: string;
   nameKhmer: string;
   nameEnglish: string;
@@ -204,6 +205,8 @@ export interface Student {
   medicalNotes?: string;
 
   // Custom user fields from Excel Import (khmer_name, english_name, sex, age, grade, date_of_birth, rlc, phone_number, contributions, remark, orther, books, time_study, status, semester, payment_by)
+  date_of_birth?: string;
+  dateOfBirth?: string;
   age?: number | string;
   rlc?: string;
   contributions?: string | number;

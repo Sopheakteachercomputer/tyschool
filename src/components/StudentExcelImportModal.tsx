@@ -99,31 +99,85 @@ export const StudentExcelImportModal: React.FC<StudentExcelImportModalProps> = (
 
   // Helper to format Excel Date serials or strings to YYYY-MM-DD
   const parseExcelDate = (val: any): string => {
-    if (!val) return '2008-01-01';
+    if (!val && val !== 0) return '2008-01-01';
+    
+    // If it's already a JS Date object (e.g. from SheetJS cellDates: true)
+    if (val instanceof Date || Object.prototype.toString.call(val) === '[object Date]') {
+      if (!isNaN(val.getTime())) {
+        const year = val.getFullYear();
+        const month = String(val.getMonth() + 1).padStart(2, '0');
+        const day = String(val.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+
     if (typeof val === 'number') {
       // Excel serial date to JS Date
       const date = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
       if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
       }
     }
-    const str = String(val).trim();
-    // Check if DD/MM/YYYY or DD-MM-YYYY
-    const dmyMatch = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+
+    let str = String(val).trim();
+    if (!str) return '2008-01-01';
+
+    // Convert Khmer numerals to standard Arabic numbers
+    const khmerNumerals: Record<string, string> = {
+      '០': '0', '១': '1', '២': '2', '៣': '3', '៤': '4',
+      '៥': '5', '៦': '6', '៧': '7', '៨': '8', '៩': '9'
+    };
+    str = str.replace(/[០-៩]/g, d => khmerNumerals[d] || d);
+
+    // If pure 5-digit number string resembling Excel serial (e.g. "39583")
+    if (/^\d{5}$/.test(str)) {
+      const num = Number(str);
+      if (num > 20000 && num < 60000) {
+        const date = new Date(Math.round((num - (25567 + 2)) * 86400 * 1000));
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        }
+      }
+    }
+
+    // Check if ISO string with T or space (e.g. 2008-05-15T00:00:00.000Z or 2008-05-15 00:00:00)
+    const isoPrefixMatch = str.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
+    if (isoPrefixMatch) {
+      const year = isoPrefixMatch[1];
+      const month = isoPrefixMatch[2].padStart(2, '0');
+      const day = isoPrefixMatch[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // Check if DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/);
     if (dmyMatch) {
       const day = dmyMatch[1].padStart(2, '0');
       const month = dmyMatch[2].padStart(2, '0');
-      const year = dmyMatch[3];
+      let year = dmyMatch[3];
+      if (year.length === 2) {
+        year = Number(year) > 40 ? `19${year}` : `20${year}`;
+      }
       return `${year}-${month}-${day}`;
     }
-    // Check if YYYY-MM-DD
-    const ymdMatch = str.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
-    if (ymdMatch) {
-      const year = ymdMatch[1];
-      const month = ymdMatch[2].padStart(2, '0');
-      const day = ymdMatch[3].padStart(2, '0');
-      return `${year}-${month}-${day}`;
+
+    // Try parsing with native Date constructor
+    const parsedDate = new Date(str);
+    if (!isNaN(parsedDate.getTime())) {
+      const year = parsedDate.getFullYear();
+      if (year >= 1950 && year <= 2050) {
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
     }
+
     return str || '2008-01-01';
   };
 
@@ -319,12 +373,14 @@ export const StudentExcelImportModal: React.FC<StudentExcelImportModalProps> = (
             return '';
           };
 
+          const rawNo = getVal(['no', 'No', 'NO', 'no.', 'No.', 'ល.រ', 'លរ', 'លេខរៀង', 'order', 'num', 'id_no']);
+          const parsedNo = rawNo !== '' && rawNo !== undefined ? (isNaN(Number(rawNo)) ? String(rawNo).trim() : Number(rawNo)) : (idx + 1);
           const khmer_name = String(getVal(['khmer_name', 'khmer name', 'name_khmer', 'ឈ្មោះខ្មែរ', 'ឈ្មោះជាភាសាខ្មែរ', 'គោត្តនាមនិងនាម'])).trim();
           const english_name = String(getVal(['english_name', 'english name', 'name_english', 'ឈ្មោះឡាតាំង', 'ឈ្មោះអង់គ្លេស', 'latin_name'])).trim();
           const sex = String(getVal(['sex', 'gender', 'ភេទ'])).trim();
           const age = getVal(['age', 'អាយុ']);
           const grade = String(getVal(['grade', 'ថ្នាក់', 'កម្រិតថ្នាក់', 'class_grade'])).trim();
-          const date_of_birth = parseExcelDate(getVal(['date_of_birth', 'date of birth', 'dob', 'ថ្ងៃខែឆ្នាំកំណើត', 'ថ្ងៃកំណើត']));
+          const date_of_birth = parseExcelDate(getVal(['date_of_birth', 'date of birth', 'dob', 'ថ្ងៃខែឆ្នាំកំណើត', 'ថ្ងៃកំណើត', 'dateofbirth', 'birth_date', 'birthdate', 'ថ្ងៃខែកំណើត', 'កាលបរិច្ឆេទកំណើត', 'ថ្ងៃខែឆ្នាំកំនើត']));
           const rlc = String(getVal(['rlc', 'rlc_code', 'អត្តលេខបន្ទប់', 'លេខសម្គាល់បន្ទប់'])).trim();
           const phone_number = String(getVal(['phone_number', 'phone', 'telephone', 'ទូរស័ព្ទ', 'លេខទូរស័ព្ទ'])).trim();
           const contributions = getVal(['contributions', 'contribution', 'fees', 'វិភាគទាន', 'បង់ថ្លៃសិក្សា', 'តម្លៃសិក្សា']);
@@ -355,11 +411,14 @@ export const StudentExcelImportModal: React.FC<StudentExcelImportModalProps> = (
 
           const studentObj: Student = {
             id: `STU-IMP-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+            no: parsedNo,
             studentCode: generatedCode,
             nameKhmer: khmer_name || `សិស្សថ្មី #${idx + 1}`,
             nameEnglish: english_name || '',
             gender: studentGender,
             dob: date_of_birth,
+            date_of_birth: date_of_birth,
+            dateOfBirth: date_of_birth,
             pob: 'រាជធានីភ្នំពេញ',
             nationality: 'ខ្មែរ (Cambodian)',
             address: orther || 'រាជធានីភ្នំពេញ',

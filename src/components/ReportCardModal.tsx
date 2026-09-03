@@ -103,7 +103,7 @@ export const ReportCardModal: React.FC<ReportCardModalProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 text-[11px] block">ភេទ / ថ្ងៃខែឆ្នាំកំណើត:</span>
-                <strong className="text-slate-800">{getGenderKhmer(student.gender)} • {student.dob}</strong>
+                <strong className="text-slate-800">{getGenderKhmer(student.gender)} • {student.dob || (student as any).date_of_birth || (student as any).dateOfBirth || '—'}</strong>
               </div>
               <div>
                 <span className="text-slate-500 text-[11px] block">ថ្នាក់សិក្សា:</span>

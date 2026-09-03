@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Student, ClassRoom, Parent, SchoolProfile, StudentStatus, User, UserRole, AttendanceRecord } from '../types';
 import { storageService } from '../services/storageService';
 import { 
@@ -119,6 +119,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const isSuperAdmin = !userRole || userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' || userRole === 'SCHOOL_ADMIN' || userRole === 'DIRECTOR';
   const [localSearch, setLocalSearch] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('ALL');
+  const [sortByNo, setSortByNo] = useState<'NO_ASC' | 'NO_DESC' | 'NAME_ASC' | 'NAME_DESC' | 'CODE_ASC' | 'NEWEST'>('NO_ASC');
   const [selectedClass, setSelectedClass] = useState('ALL');
   const [selectedGender, setSelectedGender] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
@@ -378,12 +379,124 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const search = globalSearch || localSearch;
 
+  // Helper to extract student No number
+  const getStudentNo = (student: Student, fallbackIndex = 0): number => {
+    const rawNo = (student as any).no ?? (student as any).No ?? (student as any)['ល.រ'] ?? (student as any).order;
+    if (rawNo !== undefined && rawNo !== null && rawNo !== '') {
+      const parsed = Number(rawNo);
+      if (!isNaN(parsed)) return parsed;
+      const digits = String(rawNo).match(/\d+/);
+      if (digits) return parseInt(digits[0], 10);
+    }
+    // Try extract number from studentCode (e.g. STU-2026-0001 -> 1, STU-001 -> 1)
+    if (student.studentCode) {
+      const match = student.studentCode.match(/(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return fallbackIndex + 1;
+  };
+
+  // Helper to display student No
+  const getStudentDisplayNo = (student: Student, fallbackIndex = 0): string => {
+    const rawNo = (student as any).no ?? (student as any).No ?? (student as any)['ល.រ'];
+    if (rawNo !== undefined && rawNo !== null && rawNo !== '') {
+      return String(rawNo);
+    }
+    return String(getStudentNo(student, fallbackIndex));
+  };
+
+  // Helper to normalize any date format (Date object, timestamp, DD/MM/YYYY, ISO, Khmer digits) to YYYY-MM-DD
+  const normalizeToISODate = (val: any): string => {
+    if (!val && val !== 0) return '';
+    if (val instanceof Date || Object.prototype.toString.call(val) === '[object Date]') {
+      if (!isNaN(val.getTime())) {
+        const year = val.getFullYear();
+        const month = String(val.getMonth() + 1).padStart(2, '0');
+        const day = String(val.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    if (typeof val === 'number') {
+      const date = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
+      if (!isNaN(date.getTime())) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    let str = String(val).trim();
+    if (!str) return '';
+
+    // Convert Khmer numerals to standard Arabic digits
+    const khmerNumerals: Record<string, string> = {
+      '០': '0', '១': '1', '២': '2', '៣': '3', '៤': '4',
+      '៥': '5', '៦': '6', '៧': '7', '៨': '8', '៩': '9'
+    };
+    str = str.replace(/[០-៩]/g, d => khmerNumerals[d] || d);
+
+    // If pure 5-digit number string resembling Excel serial
+    if (/^\d{5}$/.test(str)) {
+      const num = Number(str);
+      if (num > 20000 && num < 60000) {
+        const date = new Date(Math.round((num - (25567 + 2)) * 86400 * 1000));
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        }
+      }
+    }
+
+    // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    const isoPrefixMatch = str.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
+    if (isoPrefixMatch) {
+      const year = isoPrefixMatch[1];
+      const month = isoPrefixMatch[2].padStart(2, '0');
+      const day = isoPrefixMatch[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      let year = dmyMatch[3];
+      if (year.length === 2) {
+        year = Number(year) > 40 ? `19${year}` : `20${year}`;
+      }
+      return `${year}-${month}-${day}`;
+    }
+
+    const parsedDate = new Date(str);
+    if (!isNaN(parsedDate.getTime())) {
+      const year = parsedDate.getFullYear();
+      if (year >= 1950 && year <= 2050) {
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+
+    return str;
+  };
+
+  // Helper to reliably extract student date of birth from date_of_birth or dob
+  const getStudentDob = (student?: Partial<Student> | null): string => {
+    if (!student) return '';
+    const raw = (student as any).date_of_birth || student.dob || (student as any).dateOfBirth || (student as any)['ថ្ងៃខែឆ្នាំកំណើត'] || '';
+    return normalizeToISODate(raw) || String(raw || '');
+  };
+
   // Filtered Students
   const filteredStudents = students.filter(s => {
     const matchesSearch = 
       s.nameKhmer.toLowerCase().includes(search.toLowerCase()) ||
       s.nameEnglish.toLowerCase().includes(search.toLowerCase()) ||
       s.studentCode.toLowerCase().includes(search.toLowerCase()) ||
+      (s.no !== undefined && String(s.no).toLowerCase().includes(search.toLowerCase())) ||
       (s.phone && s.phone.includes(search)) ||
       (s.rlc && s.rlc.toLowerCase().includes(search.toLowerCase()));
 
@@ -416,6 +529,25 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     return matchesSearch && matchesGrade && matchesClass && matchesGender && matchesStatus && matchesTimeStudy && matchesUserFilter;
   });
 
+  // Sorted students based on sort criteria (Defaults to Sort by No field name 1 -> 9)
+  const sortedStudents = useMemo(() => {
+    const list = [...filteredStudents];
+    if (sortByNo === 'NO_ASC') {
+      list.sort((a, b) => getStudentNo(a) - getStudentNo(b));
+    } else if (sortByNo === 'NO_DESC') {
+      list.sort((a, b) => getStudentNo(b) - getStudentNo(a));
+    } else if (sortByNo === 'NAME_ASC') {
+      list.sort((a, b) => (a.nameKhmer || a.nameEnglish || '').localeCompare(b.nameKhmer || b.nameEnglish || '', 'km'));
+    } else if (sortByNo === 'NAME_DESC') {
+      list.sort((a, b) => (b.nameKhmer || b.nameEnglish || '').localeCompare(a.nameKhmer || a.nameEnglish || '', 'km'));
+    } else if (sortByNo === 'CODE_ASC') {
+      list.sort((a, b) => (a.studentCode || '').localeCompare(b.studentCode || ''));
+    } else if (sortByNo === 'NEWEST') {
+      list.sort((a, b) => (b.enrollmentDate || b.id).localeCompare(a.enrollmentDate || a.id));
+    }
+    return list;
+  }, [filteredStudents, sortByNo]);
+
   const handleOpenAddModal = () => {
     if (!isSuperAdmin) {
       alert('សិទ្ធិកែប្រែ/បន្ថែមត្រូវបានកំណត់៖ មានតែ Super Admin ប៉ុណ្ណោះដែលអាចចុះឈ្មោះសិស្សថ្មីបាន!');
@@ -428,10 +560,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const code = `STU-2026-${String(nextIndex).padStart(5, '0')}`;
     setFormData({
       studentCode: code,
+      no: nextIndex,
       nameKhmer: '',
       nameEnglish: '',
       gender: 'MALE',
       dob: '2008-01-01',
+      date_of_birth: '2008-01-01',
       pob: 'រាជធានីភ្នំពេញ',
       nationality: 'ខ្មែរ (Cambodian)',
       address: '',
@@ -474,8 +608,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setIsOtherClass(isOther);
     setCustomClassName(isOther ? (student.className || '') : '');
 
+    const resolvedDob = getStudentDob(student);
+
     setFormData({ 
       ...student,
+      no: student.no !== undefined && student.no !== '' ? student.no : getStudentNo(student),
+      dob: resolvedDob,
+      date_of_birth: resolvedDob,
       time_study: student.time_study || student.timeStudy || '',
       payment_by: student.payment_by || student.paymentBy || ''
     });
@@ -504,13 +643,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     const selectedCls = classes.find(c => c.id === formData.classId);
 
+    const resolvedDob = getStudentDob(formData as any) || '2008-01-01';
+
     const newStudent: Student = {
       id: editingStudent ? editingStudent.id : `STU-${Date.now()}`,
+      no: formData.no !== undefined && formData.no !== '' 
+        ? (isNaN(Number(formData.no)) ? String(formData.no).trim() : Number(formData.no)) 
+        : (editingStudent?.no ?? (students.length + 1)),
       studentCode: formData.studentCode || `STU-2026-${String(students.length + 1).padStart(5, '0')}`,
       nameKhmer: formData.nameKhmer || '',
       nameEnglish: formData.nameEnglish || '',
       gender: formData.gender || 'MALE',
-      dob: formData.dob || '2008-01-01',
+      dob: resolvedDob,
+      date_of_birth: resolvedDob,
+      dateOfBirth: resolvedDob,
       pob: formData.pob || 'រាជធានីភ្នំពេញ',
       nationality: formData.nationality || 'ខ្មែរ (Cambodian)',
       address: formData.address || '',
@@ -549,13 +695,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const handleExportCSV = () => {
-    const exportData = filteredStudents.map(s => ({
+    const exportData = sortedStudents.map((s, idx) => ({
+      'no': getStudentDisplayNo(s, idx),
       'khmer_name': s.nameKhmer,
       'english_name': s.nameEnglish,
       'sex': getGenderKhmer(s.gender),
       'age': s.age || '',
       'grade': s.grade || '',
-      'date_of_birth': s.dob,
+      'date_of_birth': getStudentDob(s),
       'rlc': s.rlc || s.classId,
       'phone_number': s.phone || s.parentPhone || '',
       'contributions': s.contributions || '',
@@ -589,7 +736,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           <h2 className="text-xl sm:text-2xl font-bold text-white font-battambang flex items-center gap-2">
             <span>គ្រប់គ្រងព័ត៌មានសិស្ស</span>
             <span className="text-xs text-indigo-300 font-sans font-normal border border-indigo-400/30 bg-indigo-500/20 px-2.5 py-0.5 rounded-full">
-              {filteredStudents.length} នាក់
+              {sortedStudents.length} នាក់
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">គ្រប់គ្រងបញ្ជីឈ្មោះ ប្រវត្តិរូប នាំចូល Excel កាតសិស្ស និងលទ្ធផលសិក្សារបស់សិស្ស</p>
@@ -739,26 +886,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           <option value="NO_PARENT">❓ គ្មានព័ត៌មានអាណាព្យាបាល (No Guardian)</option>
         </select>
 
-        {/* Grade Filter */}
+        {/* Sort Students List by No Field (Replaced គ្រប់កម្រិតថ្នាក់ All Grades) */}
         <select
-          value={selectedGrade}
-          onChange={e => setSelectedGrade(e.target.value)}
-          className="px-3.5 py-2 bg-slate-900/80 text-xs text-slate-200 rounded-2xl border border-white/10 outline-none font-battambang"
+          id="select-sort-students-by-no"
+          value={sortByNo}
+          onChange={e => setSortByNo(e.target.value as any)}
+          className="px-3.5 py-2 bg-slate-900/80 text-xs text-indigo-200 font-semibold rounded-2xl border border-indigo-500/40 hover:border-indigo-400 outline-none font-battambang transition shadow-sm"
+          title="តម្រៀបបញ្ជីសិស្សតាមលេខរៀង No (Sort students list by No field name)"
         >
-          <option value="ALL">គ្រប់កម្រិតថ្នាក់ (All Grades)</option>
-          <option value="12">ថ្នាក់ទី១២ (Grade 12)</option>
-          <option value="11">ថ្នាក់ទី១១ (Grade 11)</option>
-          <option value="10">ថ្នាក់ទី១០ (Grade 10)</option>
-          <option value="9">ថ្នាក់ទី៩ (Grade 9)</option>
-          <option value="8">ថ្នាក់ទី៨ (Grade 8)</option>
-          <option value="7">ថ្នាក់ទី៧ (Grade 7)</option>
-          <option value="6">ថ្នាក់ទី៦ (Grade 6)</option>
-          <option value="5">ថ្នាក់ទី៥ (Grade 5)</option>
-          <option value="4">ថ្នាក់ទី៤ (Grade 4)</option>
-          <option value="3">ថ្នាក់ទី៣ (Grade 3)</option>
-          <option value="2">ថ្នាក់ទី២ (Grade 2)</option>
-          <option value="1">ថ្នាក់ទី១ (Grade 1)</option>
-          <option value="OTHER">ផ្សេងៗ (Other)</option>
+          <option value="NO_ASC">🔢 តម្រៀបតាម No (Sort students list by No: 1 → 9)</option>
+          <option value="NO_DESC">🔢 តម្រៀបតាម No (Sort students list by No: 9 → 1)</option>
+          <option value="NAME_ASC">🔤 តម្រៀបតាមឈ្មោះ (Sort by Name: A → Z)</option>
+          <option value="NAME_DESC">🔤 តម្រៀបតាមឈ្មោះ (Sort by Name: Z → A)</option>
+          <option value="CODE_ASC">🏷️ តម្រៀបតាមអត្តលេខ (Sort by Student Code)</option>
+          <option value="NEWEST">🕒 សិស្សចុះឈ្មោះថ្មី (Sort by Newest)</option>
         </select>
 
         {/* Class Filter */}
@@ -818,6 +959,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-white/5 border-b border-white/10 text-slate-300 font-battambang">
+                <th className="py-3.5 px-3 font-semibold text-center w-14">
+                  <span className="flex items-center justify-center gap-1">
+                    <span>ល.រ</span>
+                    <span className="text-[10px] text-indigo-300 font-mono font-bold">(No)</span>
+                  </span>
+                </th>
                 <th className="py-3.5 px-4 font-semibold">រូបថត & អត្តលេខ</th>
                 <th className="py-3.5 px-4 font-semibold">គោត្តនាម-នាម</th>
                 <th className="py-3.5 px-4 font-semibold">ភេទ & ថ្ងៃកំណើត</th>
@@ -828,16 +975,23 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-slate-200">
-              {filteredStudents.length === 0 ? (
+              {sortedStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-slate-400">
+                  <td colSpan={8} className="text-center py-12 text-slate-400">
                     មិនមានទិន្នន័យសិស្សត្រូវនឹងលក្ខខណ្ឌស្វែងរកឡើយ
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map(student => (
+                sortedStudents.map((student, idx) => (
                   <tr key={student.id} className="hover:bg-white/5 transition-colors">
                     
+                    {/* No Column */}
+                    <td className="py-3 px-3 text-center">
+                      <span className="inline-flex items-center justify-center min-w-[30px] h-7 px-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-mono font-bold text-indigo-300 shadow-sm">
+                        {getStudentDisplayNo(student, idx)}
+                      </span>
+                    </td>
+
                     {/* Photo & Code */}
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-3">
@@ -924,7 +1078,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <p className="text-slate-400 text-[11px] font-mono">{student.dob}</p>
+                      <p className="text-slate-400 text-[11px] font-mono">{getStudentDob(student) || '—'}</p>
                     </td>
 
                     {/* Class */}
@@ -1084,7 +1238,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
         {/* Footer Summary */}
         <div className="p-4 bg-white/5 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
-          <span>បង្ហាញ {filteredStudents.length} នៃសិស្សសរុប {students.length} នាក់</span>
+          <span>បង្ហាញ {sortedStudents.length} នៃសិស្សសរុប {students.length} នាក់</span>
           <span>ឆ្នាំសិក្សា {school.academicYear}</span>
         </div>
       </div>
@@ -1282,8 +1436,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
 
               {/* Codes & Names */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="sm:col-span-1">
+                  <label className="block text-slate-300 font-medium mb-1">ល.រ (No Field)</label>
+                  <input
+                    type="text"
+                    value={formData.no ?? ''}
+                    onChange={e => setFormData({ ...formData, no: e.target.value })}
+                    placeholder="1"
+                    className="w-full px-3 py-2 bg-white/5 rounded-2xl border border-white/10 font-mono font-bold text-indigo-300 outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-1">
                   <label className="block text-slate-300 font-medium mb-1">អត្តលេខសិស្ស (ID Code)*</label>
                   <input
                     type="text"
@@ -1293,7 +1457,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     className="w-full px-3 py-2 bg-white/5 rounded-2xl border border-white/10 font-mono font-bold text-indigo-300 outline-none"
                   />
                 </div>
-                <div>
+                <div className="sm:col-span-1">
                   <label className="block text-slate-300 font-medium mb-1">ឈ្មោះជាភាសាខ្មែរ*</label>
                   <input
                     type="text"
@@ -1304,8 +1468,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     className="w-full px-3 py-2 bg-white/5 rounded-2xl border border-white/10 focus:border-indigo-400 text-white font-battambang outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">ឈ្មោះឡាតាំង (English Name)*</label>
+                <div className="sm:col-span-1">
+                  <label className="block text-slate-300 font-medium mb-1">ឈ្មោះឡាតាំង (English)*</label>
                   <input
                     type="text"
                     required
@@ -1331,13 +1495,23 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">ថ្ងៃខែឆ្នាំកំណើត*</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-300 font-medium">ថ្ងៃខែឆ្នាំកំណើត*</label>
+                    {getStudentDob(formData as any) && (
+                      <span className="text-[10px] text-indigo-300 font-mono">
+                        ({getStudentDob(formData as any)})
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="date"
                     required
-                    value={formData.dob || ''}
-                    onChange={e => setFormData({ ...formData, dob: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/5 text-slate-200 rounded-2xl border border-white/10 outline-none"
+                    value={getStudentDob(formData as any)}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setFormData({ ...formData, dob: val, date_of_birth: val, dateOfBirth: val });
+                    }}
+                    className="w-full px-3 py-2 bg-white/5 text-slate-200 rounded-2xl border border-white/10 focus:border-indigo-400 outline-none font-mono"
                   />
                 </div>
                 <div>
@@ -1687,7 +1861,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <div className="p-3 bg-white/5 rounded-2xl border border-white/10">
                   <p className="text-slate-400">ថ្ងៃខែឆ្នាំកំណើត & អាយុ</p>
                   <p className="font-semibold text-white text-xs mt-0.5 font-mono">
-                    {profileModalStudent.dob} {profileModalStudent.age ? `(${profileModalStudent.age} ឆ្នាំ)` : ''}
+                    {getStudentDob(profileModalStudent)} {profileModalStudent.age ? `(${profileModalStudent.age} ឆ្នាំ)` : ''}
                   </p>
                 </div>
                 <div className="p-3 bg-white/5 rounded-2xl border border-white/10">

@@ -107,7 +107,7 @@ export const IdCardModal: React.FC<IdCardModalProps> = ({ student, school, onClo
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">ថ្ងៃខែឆ្នាំកំណើត:</span>
-                  <span className="font-medium text-white">{student.dob}</span>
+                  <span className="font-medium text-white">{student.dob || (student as any).date_of_birth || (student as any).dateOfBirth || '—'}</span>
                 </div>
               </div>
             </div>

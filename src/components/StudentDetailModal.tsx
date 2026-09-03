@@ -82,7 +82,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     nameEnglish: student.nameEnglish,
     className: student.className,
     classId: student.classId,
-    dob: student.dob,
+    dob: student.dob || (student as any).date_of_birth || (student as any).dateOfBirth || '',
     gender: student.gender,
     academicYear: school.academicYear,
     timestamp: new Date().toISOString()
@@ -317,7 +317,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
                       <div className="text-[11px]">
                         <span className="text-[9px] text-indigo-300 block font-battambang">ថ្ងៃខែឆ្នាំកំណើត:</span>
-                        <span className="font-mono text-slate-200">{student.dob}</span>
+                        <span className="font-mono text-slate-200">{student.dob || (student as any).date_of_birth || (student as any).dateOfBirth || '—'}</span>
                       </div>
                     </div>
                   </div>
