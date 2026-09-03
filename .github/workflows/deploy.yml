@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -16,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -34,10 +35,17 @@ jobs:
       - name: Type check (Lint)
         run: npm run lint
 
-      - name: Build client for GitHub Pages
+      - name: Build client for GitHub Pages (/tyschool/)
         run: npm run build:client
 
-      - name: Upload Pages artifact
+      - name: Deploy to gh-pages branch (for branch-based hosting)
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist
+          branch: gh-pages
+        continue-on-error: true
+
+      - name: Upload Pages artifact (for Actions-based hosting)
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
@@ -47,7 +55,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-and-deploy
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

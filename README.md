@@ -21,16 +21,33 @@ GitHub web interface has a built-in safety limit: when an initial commit contain
 
 ---
 
-## 🚀 How to Publish & Deploy with GitHub
+## 🚀 How to Publish & Display on GitHub Pages (`https://sopheakteachercomputer.github.io/tyschool/`)
 
-### Option A: Publish with GitHub Pages (Static Client Hosting)
-This repository includes an automated GitHub Actions deployment workflow in `.github/workflows/deploy.yml`.
+The repository is pre-configured specifically for your repository: **`tyschool`** (`https://sopheakteachercomputer.github.io/tyschool/`).
 
-1. Push this repository to GitHub (or use AI Studio's **Export to GitHub** feature).
-2. On GitHub, navigate to your repository **Settings** → **Pages**.
-3. Under **Build and deployment** → **Source**, select **GitHub Actions**.
-4. Push any commit to the `main` branch (or run the workflow manually under the **Actions** tab).
-5. GitHub will automatically build and publish your application to `https://<your-username>.github.io/<repository-name>/`.
+### Method 1: Using GitHub Actions (Recommended)
+1. Push your latest code to GitHub (or use AI Studio's **Export to GitHub**).
+2. Go to your repository on GitHub: `https://github.com/sopheakteachercomputer/tyschool`
+3. Click on **Settings** (tab on top) → **Pages** (in the left sidebar).
+4. Under **Build and deployment** → **Source**, select **GitHub Actions**.
+5. Click on the **Actions** tab at the top of your repository:
+   - You will see the **Deploy to GitHub Pages** workflow run automatically.
+   - Once it completes with a green checkmark, your page at [https://sopheakteachercomputer.github.io/tyschool/](https://sopheakteachercomputer.github.io/tyschool/) is live!
+
+---
+
+### Method 2: Deploy from Command Line (Direct 1-Command Deploy)
+If you have cloned the repository locally:
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Build and publish directly to the gh-pages branch
+npm run deploy:gh-pages
+```
+Then in GitHub **Settings** → **Pages**:
+- Under **Source**, choose **Deploy from a branch**.
+- Select branch **`gh-pages`** and folder **`/ (root)`**, then click **Save**.
 
 ### Option B: Deploy Full-Stack App (with Server-Side Gemini AI & WebSockets)
 To run the complete server with real-time Gemini Live voice streaming, Lyria music generation, and Veo video generation:

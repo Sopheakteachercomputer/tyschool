@@ -3,9 +3,12 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
+  // Use '/tyschool/' for production builds or when building for GitHub Pages, '/' in dev mode
+  const base = process.env.BASE_PATH || (mode === 'production' || command === 'build' ? '/tyschool/' : '/');
+
   return {
-    base: './',
+    base,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
