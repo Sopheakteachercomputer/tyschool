@@ -1,0 +1,6 @@
+{
+  "name": "Cambodian School Management System",
+  "description": "A comprehensive full-stack coding education and school management system with Gemini AI multimodal features, Lyria music generation, Veo video animation, image generation, audio transcription, voice conversations, Search & Maps grounding, and role-based chatbots.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
