@@ -1567,10 +1567,28 @@ export const StorageService = {
     if (index >= 0) list[index] = event;
     else list.unshift(event);
     setItem(STORAGE_KEYS.EVENTS, list);
+    StorageService.addAuditLog('ប្រតិទិនអប់រំ (Academic Calendar)', index >= 0 ? 'កែប្រែព្រឹត្តិការណ៍' : 'បន្ថែមព្រឹត្តិការណ៍', `${event.titleKhmer} (${event.type})`);
   },
   deleteEvent: (id: string) => {
     const list = StorageService.getEvents();
+    const target = list.find(e => e.id === id);
     setItem(STORAGE_KEYS.EVENTS, list.filter(e => e.id !== id));
+    StorageService.addAuditLog('ប្រតិទិនអប់រំ (Academic Calendar)', 'លុបព្រឹត្តិការណ៍', target ? target.titleKhmer : `ID: ${id}`);
+  },
+  saveEventsBatch: (newEvents: SchoolEvent[]) => {
+    const list = StorageService.getEvents();
+    const existingIds = new Set(list.map(e => e.id));
+    const combined = [...list];
+    newEvents.forEach(ev => {
+      const idx = combined.findIndex(e => e.id === ev.id);
+      if (idx >= 0) {
+        combined[idx] = ev;
+      } else {
+        combined.push(ev);
+      }
+    });
+    setItem(STORAGE_KEYS.EVENTS, combined);
+    StorageService.addAuditLog('ប្រតិទិនអប់រំ (Academic Calendar)', 'បញ្ចូលព្រឹត្តិការណ៍ជាក្រុម', `បានបញ្ចូល ${newEvents.length} ព្រឹត្តិការណ៍/ថ្ងៃឈប់សម្រាក`);
   },
 
   // Certificates

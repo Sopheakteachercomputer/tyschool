@@ -44,7 +44,14 @@ import {
   Send,
   ArrowRight,
   RefreshCw,
-  MessageSquare
+  MessageSquare,
+  LayoutGrid,
+  List as ListIcon,
+  ChevronLeft,
+  Flag,
+  Plus,
+  MapPin,
+  X
 } from 'lucide-react';
 import { formatBothCurrencies, formatCurrency, isFemaleGender, isMaleGender } from '../utils/formatters';
 import { getTranslation } from '../utils/i18n';
@@ -64,6 +71,7 @@ interface DashboardViewProps {
   exams?: Exam[];
   announcements: Announcement[];
   events: SchoolEvent[];
+  onSaveEvent?: (event: SchoolEvent) => void;
   notifications?: NotificationItem[];
   onSelectNotification?: (notification: NotificationItem) => void;
   onOpenSendNotification?: () => void;
@@ -90,6 +98,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   exams = [],
   announcements = [],
   events = [],
+  onSaveEvent,
   notifications = [],
   onSelectNotification,
   onOpenSendNotification,
@@ -103,6 +112,127 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenReportCardModal
 }) => {
   const t = getTranslation(language);
+  const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'DIRECTOR', 'SCHOOL_ADMIN'].includes(userRole || '');
+
+  // Dashboard Calendar Widget States
+  const [calendarViewMode, setCalendarViewMode] = React.useState<'grid' | 'list'>('grid');
+  const [calendarFilter, setCalendarFilter] = React.useState<'ALL' | 'HOLIDAY' | 'EXAM' | 'EVENT'>('ALL');
+  const [calendarDate, setCalendarDate] = React.useState(() => new Date(2026, 8, 4)); // Sep 2026
+  const [calendarSelectedDate, setCalendarSelectedDate] = React.useState('2026-09-04');
+
+  // Quick Add Event Modal States
+  const [quickAddOpen, setQuickAddOpen] = React.useState(false);
+  const [quickAddTitle, setQuickAddTitle] = React.useState('');
+  const [quickAddType, setQuickAddType] = React.useState<'HOLIDAY' | 'EXAM' | 'EVENT'>('HOLIDAY');
+  const [quickAddStartDate, setQuickAddStartDate] = React.useState('2026-09-04');
+  const [quickAddEndDate, setQuickAddEndDate] = React.useState('2026-09-04');
+  const [quickAddDesc, setQuickAddDesc] = React.useState('');
+
+  const calYear = calendarDate.getFullYear();
+  const calMonth = calendarDate.getMonth();
+
+  const calKhmerMonths = [
+    'មករា (Jan)', 'កុម្ភៈ (Feb)', 'មីនា (Mar)', 'មេសា (Apr)',
+    'ឧសភា (May)', 'មិថុនា (Jun)', 'កក្កដា (Jul)', 'សីហា (Aug)',
+    'កញ្ញា (Sep)', 'តុលា (Oct)', 'វិច្ឆិកា (Nov)', 'ធ្នូ (Dec)'
+  ];
+
+  // Filtered events for widget
+  const widgetFilteredEvents = React.useMemo(() => {
+    return events.filter(e => {
+      if (calendarFilter === 'ALL') return true;
+      if (calendarFilter === 'HOLIDAY') return e.type === 'HOLIDAY';
+      if (calendarFilter === 'EXAM') return e.type === 'EXAM';
+      if (calendarFilter === 'EVENT') return ['EVENT', 'FESTIVAL', 'CEREMONY', 'SPORTS'].includes(e.type);
+      return true;
+    }).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }, [events, calendarFilter]);
+
+  // Mini grid calculation
+  const widgetCalendarDays = React.useMemo(() => {
+    const firstDay = new Date(calYear, calMonth, 1);
+    const lastDay = new Date(calYear, calMonth + 1, 0);
+    const totalDays = lastDay.getDate();
+    let startDayOfWeek = firstDay.getDay() - 1;
+    if (startDayOfWeek === -1) startDayOfWeek = 6;
+
+    const days: Array<{
+      dateStr: string;
+      dayNum: number;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      events: SchoolEvent[];
+    }> = [];
+
+    // Prev month padding
+    const prevMonthLastDay = new Date(calYear, calMonth, 0).getDate();
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      const pDay = prevMonthLastDay - i;
+      const pDate = new Date(calYear, calMonth - 1, pDay);
+      const yStr = pDate.getFullYear();
+      const mStr = String(pDate.getMonth() + 1).padStart(2, '0');
+      const dStr = String(pDay).padStart(2, '0');
+      const dateStr = `${yStr}-${mStr}-${dStr}`;
+      const dayEvs = widgetFilteredEvents.filter(e => dateStr >= e.startDate && dateStr <= e.endDate);
+      days.push({ dateStr, dayNum: pDay, isCurrentMonth: false, isToday: dateStr === '2026-09-04', events: dayEvs });
+    }
+
+    // Current month
+    for (let d = 1; d <= totalDays; d++) {
+      const mStr = String(calMonth + 1).padStart(2, '0');
+      const dStr = String(d).padStart(2, '0');
+      const dateStr = `${calYear}-${mStr}-${dStr}`;
+      const dayEvs = widgetFilteredEvents.filter(e => dateStr >= e.startDate && dateStr <= e.endDate);
+      days.push({ dateStr, dayNum: d, isCurrentMonth: true, isToday: dateStr === '2026-09-04', events: dayEvs });
+    }
+
+    // Next month padding to fill multiple of 7
+    const remaining = 7 - (days.length % 7);
+    if (remaining < 7) {
+      for (let d = 1; d <= remaining; d++) {
+        const nDate = new Date(calYear, calMonth + 1, d);
+        const yStr = nDate.getFullYear();
+        const mStr = String(nDate.getMonth() + 1).padStart(2, '0');
+        const dStr = String(d).padStart(2, '0');
+        const dateStr = `${yStr}-${mStr}-${dStr}`;
+        const dayEvs = widgetFilteredEvents.filter(e => dateStr >= e.startDate && dateStr <= e.endDate);
+        days.push({ dateStr, dayNum: d, isCurrentMonth: false, isToday: dateStr === '2026-09-04', events: dayEvs });
+      }
+    }
+
+    return days;
+  }, [calYear, calMonth, widgetFilteredEvents]);
+
+  // Selected date events
+  const selectedDayEvents = React.useMemo(() => {
+    return widgetFilteredEvents.filter(e => calendarSelectedDate >= e.startDate && calendarSelectedDate <= e.endDate);
+  }, [calendarSelectedDate, widgetFilteredEvents]);
+
+  // Handle Quick Add Submit
+  const handleQuickAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickAddTitle.trim()) return;
+
+    const newEv: SchoolEvent = {
+      id: `EV-${Date.now()}`,
+      titleKhmer: quickAddTitle.trim(),
+      type: quickAddType,
+      startDate: quickAddStartDate,
+      endDate: quickAddEndDate || quickAddStartDate,
+      isAllDay: true,
+      description: quickAddDesc.trim() || '',
+      color: quickAddType === 'HOLIDAY' ? '#f59e0b' : quickAddType === 'EXAM' ? '#ef4444' : '#6366f1',
+      targetAudience: 'ALL',
+      academicYear: '2026-2027'
+    };
+
+    if (onSaveEvent) {
+      onSaveEvent(newEv);
+    }
+    setQuickAddOpen(false);
+    setQuickAddTitle('');
+    setQuickAddDesc('');
+  };
 
   // Calculations
   const totalStudents = students.length;
@@ -671,41 +801,426 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Upcoming Events */}
-        <div className="glass-panel rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-white font-battambang text-sm sm:text-base">
-              {language === 'km' ? 'ព្រឹត្តិការណ៍ & ការប្រឡង (Events)' : 'Events & Calendar'}
-            </h3>
-            <button 
-              onClick={() => onNavigate('announcements')}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center space-x-1"
+        {/* Academic Calendar Widget with Grid and List Views */}
+        <div className="glass-panel rounded-3xl p-5 sm:p-6 flex flex-col justify-between">
+          <div>
+            {/* Header: Title, Grid/List Toggles, and Full Calendar Link */}
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white font-battambang text-sm leading-snug">
+                    {language === 'km' ? 'ប្រតិទិនអប់រំ & ព្រឹត្តិការណ៍' : 'Academic Calendar'}
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-battambang">
+                    {language === 'km' ? 'ថ្ងៃឈប់សម្រាក ការប្រឡង និងកម្មវិធី' : 'Holidays, Exams & Events'}
+                  </span>
+                </div>
+              </div>
+
+              {/* View Switch Buttons & Full Calendar Link */}
+              <div className="flex items-center space-x-1.5">
+                <div className="flex items-center bg-white/5 p-0.5 rounded-xl border border-white/10">
+                  <button
+                    onClick={() => setCalendarViewMode('grid')}
+                    className={`p-1.5 rounded-lg text-xs transition-all ${
+                      calendarViewMode === 'grid'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={language === 'km' ? 'ទិដ្ឋភាពក្រឡាចត្រង្គ (Grid)' : 'Grid View'}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setCalendarViewMode('list')}
+                    className={`p-1.5 rounded-lg text-xs transition-all ${
+                      calendarViewMode === 'list'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={language === 'km' ? 'ទិដ្ឋភាពបញ្ជី (List)' : 'List View'}
+                  >
+                    <ListIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button 
+                  onClick={() => onNavigate('academic_calendar')}
+                  className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center space-x-0.5 transition-colors"
+                  title="បើកប្រតិទិនពេញលេញ"
+                >
+                  <span className="text-[11px] font-battambang hidden sm:inline">ពេញលេញ</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Filter Badges */}
+            <div className="flex items-center space-x-1 overflow-x-auto pb-2 mb-2 no-scrollbar text-[11px] font-battambang">
+              <button
+                onClick={() => setCalendarFilter('ALL')}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors ${
+                  calendarFilter === 'ALL'
+                    ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-bold'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ទាំងអស់ ({events.length})
+              </button>
+              <button
+                onClick={() => setCalendarFilter('HOLIDAY')}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors flex items-center space-x-1 ${
+                  calendarFilter === 'HOLIDAY'
+                    ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span>ឈប់សម្រាក</span>
+              </button>
+              <button
+                onClick={() => setCalendarFilter('EXAM')}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors flex items-center space-x-1 ${
+                  calendarFilter === 'EXAM'
+                    ? 'bg-rose-500/30 text-rose-300 border border-rose-500/40 font-bold'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <span>ការប្រឡង</span>
+              </button>
+              <button
+                onClick={() => setCalendarFilter('EVENT')}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors flex items-center space-x-1 ${
+                  calendarFilter === 'EVENT'
+                    ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-bold'
+                    : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                <span>កម្មវិធីសាលា</span>
+              </button>
+            </div>
+
+            {/* CONDITIONAL RENDERING: GRID or LIST VIEW */}
+            {calendarViewMode === 'grid' ? (
+              <div className="space-y-2.5">
+                {/* Month Navigator Header */}
+                <div className="flex items-center justify-between text-xs py-1 px-1 bg-white/[0.03] rounded-xl border border-white/5">
+                  <button
+                    onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
+                    className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-bold text-slate-200 font-battambang text-[12px]">
+                    {calKhmerMonths[calMonth]} {calYear}
+                  </span>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => {
+                        setCalendarDate(new Date(2026, 8, 4));
+                        setCalendarSelectedDate('2026-09-04');
+                      }}
+                      className="text-[10px] text-indigo-300 hover:underline font-battambang px-1"
+                    >
+                      ថ្ងៃនេះ
+                    </button>
+                    <button
+                      onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
+                      className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Day Name Row */}
+                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 font-battambang">
+                  <span>ច</span>
+                  <span>អ</span>
+                  <span>ព</span>
+                  <span>ព្រ</span>
+                  <span>សុ</span>
+                  <span className="text-amber-400">ស</span>
+                  <span className="text-amber-400">អា</span>
+                </div>
+
+                {/* Mini Calendar Grid Matrix */}
+                <div className="grid grid-cols-7 gap-1">
+                  {widgetCalendarDays.map((cell, idx) => {
+                    const isSelected = cell.dateStr === calendarSelectedDate;
+                    const hasHoliday = cell.events.some(e => e.type === 'HOLIDAY');
+                    const hasExam = cell.events.some(e => e.type === 'EXAM');
+                    const hasSchoolEv = cell.events.some(e => ['EVENT', 'FESTIVAL', 'CEREMONY', 'SPORTS'].includes(e.type));
+
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setCalendarSelectedDate(cell.dateStr)}
+                        className={`h-7 sm:h-8 rounded-xl flex flex-col items-center justify-center relative transition-all ${
+                          cell.isCurrentMonth
+                            ? cell.isToday
+                              ? 'bg-indigo-600 text-white font-bold ring-1 ring-indigo-400 shadow-sm'
+                              : isSelected
+                                ? 'bg-white/20 text-white font-bold ring-1 ring-white/40'
+                                : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                            : 'opacity-30 text-slate-500'
+                        }`}
+                      >
+                        <span className="text-[11px] font-mono leading-none">{cell.dayNum}</span>
+                        {/* Event Dot Indicators */}
+                        {cell.events.length > 0 && (
+                          <div className="flex items-center space-x-0.5 mt-0.5">
+                            {hasHoliday && <span className="w-1 h-1 rounded-full bg-amber-400" />}
+                            {hasExam && <span className="w-1 h-1 rounded-full bg-rose-400" />}
+                            {hasSchoolEv && <span className="w-1 h-1 rounded-full bg-indigo-400" />}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Day's Events Display */}
+                <div className="mt-2 pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-battambang mb-1.5">
+                    <span>កាលបរិច្ឆេទ: <strong className="text-indigo-300 font-mono">{calendarSelectedDate}</strong></span>
+                    <span>{selectedDayEvents.length} ព្រឹត្តិការណ៍</span>
+                  </div>
+
+                  {selectedDayEvents.length > 0 ? (
+                    <div className="space-y-1.5 max-h-[110px] overflow-y-auto no-scrollbar">
+                      {selectedDayEvents.map(ev => (
+                        <div
+                          key={ev.id}
+                          onClick={() => onNavigate('academic_calendar')}
+                          className={`p-2 rounded-xl border text-xs cursor-pointer hover:scale-[1.01] transition-transform ${
+                            ev.type === 'HOLIDAY' ? 'bg-amber-500/15 border-amber-500/30 text-amber-200' :
+                            ev.type === 'EXAM' ? 'bg-rose-500/15 border-rose-500/30 text-rose-200' :
+                            'bg-indigo-500/15 border-indigo-500/30 text-indigo-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-battambang">
+                            <span className="font-bold text-[11px] truncate flex items-center space-x-1">
+                              <span>{ev.titleKhmer}</span>
+                            </span>
+                            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-md bg-black/20 font-mono shrink-0">
+                              {ev.type}
+                            </span>
+                          </div>
+                          {ev.description && (
+                            <p className="text-[10px] text-slate-300 mt-0.5 line-clamp-1 font-battambang">
+                              {ev.description}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-2.5 px-3 rounded-xl bg-white/[0.02] border border-white/5 text-center">
+                      <p className="text-[11px] text-slate-400 font-battambang">
+                        គ្មានព្រឹត្តិការណ៍នៅថ្ងៃនេះទេ
+                      </p>
+                      {isAdmin && (
+                        <button
+                          onClick={() => {
+                            setQuickAddStartDate(calendarSelectedDate);
+                            setQuickAddEndDate(calendarSelectedDate);
+                            setQuickAddOpen(true);
+                          }}
+                          className="mt-1 text-[10px] text-indigo-400 hover:underline font-battambang"
+                        >
+                          + បន្ថែមព្រឹត្តិការណ៍ក្នុងថ្ងៃនេះ
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* LIST VIEW */
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto no-scrollbar">
+                {widgetFilteredEvents.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400 font-battambang">
+                    មិនមានព្រឹត្តិការណ៍តាមលក្ខខណ្ឌនេះទេ
+                  </div>
+                ) : (
+                  widgetFilteredEvents.slice(0, 5).map(ev => {
+                    const isHoliday = ev.type === 'HOLIDAY';
+                    const isExam = ev.type === 'EXAM';
+
+                    return (
+                      <div
+                        key={ev.id}
+                        onClick={() => onNavigate('academic_calendar')}
+                        className="flex items-start space-x-3 p-2.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer group"
+                      >
+                        <div className={`p-2 rounded-xl text-xs font-bold text-center shrink-0 w-11 border ${
+                          isHoliday ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 
+                          isExam ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 
+                          'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                        }`}>
+                          <Calendar className="w-3.5 h-3.5 mx-auto mb-0.5" />
+                          <span className="text-[9px] block uppercase font-mono">
+                            {ev.startDate.split('-')[1]}/{ev.startDate.split('-')[2]}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-bold text-white font-battambang text-xs leading-snug truncate group-hover:text-indigo-300 transition-colors">
+                              {language === 'km' ? ev.titleKhmer : (ev.titleEnglish || ev.titleKhmer)}
+                            </h4>
+                          </div>
+                          <p className="text-[10px] text-slate-300 mt-0.5 line-clamp-1 font-battambang">
+                            {ev.description || (isHoliday ? 'ថ្ងៃឈប់សម្រាក' : isExam ? 'ការប្រឡង' : 'កម្មវិធីសាលា')}
+                          </p>
+                          <div className="flex items-center space-x-2 mt-1 text-[9px] text-slate-400 font-mono">
+                            <span>{ev.startDate}</span>
+                            {ev.location && (
+                              <span className="truncate max-w-[90px] font-battambang">📍 {ev.location}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer Controls: Quick Add (Admin) and View Full Calendar */}
+          <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
+            {isAdmin ? (
+              <button
+                onClick={() => {
+                  setQuickAddStartDate(calendarSelectedDate);
+                  setQuickAddEndDate(calendarSelectedDate);
+                  setQuickAddOpen(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold font-battambang flex items-center space-x-1.5 transition-all shadow-md shadow-indigo-600/30"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>បន្ថែម</span>
+              </button>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-battambang">ឆ្នាំសិក្សា ២០២៦-២០២៧</span>
+            )}
+
+            <button
+              onClick={() => onNavigate('academic_calendar')}
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold font-battambang flex items-center space-x-1"
             >
-              <span>{language === 'km' ? 'ប្រតិទិន' : 'Calendar'}</span>
+              <span>{language === 'km' ? 'ប្រតិទិនលម្អិត' : 'Full Calendar'}</span>
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
-
-          <div className="space-y-3">
-            {events.slice(0, 4).map(ev => (
-              <div key={ev.id} className="flex items-start space-x-3 p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
-                <div className={`p-2 rounded-xl text-xs font-bold text-center shrink-0 w-12 border ${
-                  ev.type === 'HOLIDAY' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 
-                  ev.type === 'EXAM' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                }`}>
-                  <Calendar className="w-4 h-4 mx-auto mb-0.5" />
-                  <span className="text-[9px] block uppercase font-mono">{ev.startDate.split('-')[1]}/{ev.startDate.split('-')[2]}</span>
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-bold text-white font-battambang text-xs leading-snug">
-                    {language === 'km' ? ev.titleKhmer : (ev.titleEnglish || ev.titleKhmer)}
-                  </h4>
-                  <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-1">{ev.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
+
+        {/* Quick Add Event Modal (Dashboard Modal) */}
+        {quickAddOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
+            <div className="glass-panel w-full max-w-md rounded-3xl p-6 border border-white/20 shadow-2xl relative bg-slate-900/95 space-y-4">
+              <button
+                onClick={() => setQuickAddOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white font-battambang">
+                  បន្ថែមព្រឹត្តិការណ៍ / ថ្ងៃឈប់សម្រាកថ្មី
+                </h3>
+                <p className="text-xs text-slate-400 font-battambang">
+                  បញ្ចូលកាលបរិច្ឆេទទៅក្នុងប្រតិទិនអប់រំសាលា
+                </p>
+              </div>
+
+              <form onSubmit={handleQuickAddSubmit} className="space-y-3 font-battambang text-xs">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">ប្រភេទ*</label>
+                  <select
+                    value={quickAddType}
+                    onChange={e => setQuickAddType(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:border-indigo-400"
+                  >
+                    <option value="HOLIDAY" className="bg-slate-900 text-white">🏖️ ថ្ងៃឈប់សម្រាក (Holiday)</option>
+                    <option value="EXAM" className="bg-slate-900 text-white">📝 កាលបរិច្ឆេទប្រឡង (Exam)</option>
+                    <option value="EVENT" className="bg-slate-900 text-white">🎉 កម្មវិធីសាលា (Event)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">ចំណងជើង*</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ឧ. ពិធីបុណ្យភ្ជុំបិណ្ឌ ឬ ការប្រឡងឆមាស..."
+                    value={quickAddTitle}
+                    onChange={e => setQuickAddTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:border-indigo-400"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">កាលបរិច្ឆេទចាប់ផ្តើម*</label>
+                    <input
+                      type="date"
+                      required
+                      value={quickAddStartDate}
+                      onChange={e => setQuickAddStartDate(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">កាលបរិច្ឆេទបញ្ចប់</label>
+                    <input
+                      type="date"
+                      value={quickAddEndDate}
+                      onChange={e => setQuickAddEndDate(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">ពិពណ៌នា (Optional)</label>
+                  <textarea
+                    rows={2}
+                    placeholder="ព័ត៌មានបន្ថែម..."
+                    value={quickAddDesc}
+                    onChange={e => setQuickAddDesc(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:border-indigo-400"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setQuickAddOpen(false)}
+                    className="px-3.5 py-2 bg-white/10 hover:bg-white/15 text-slate-300 rounded-xl font-bold"
+                  >
+                    បោះបង់
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-md shadow-indigo-600/30"
+                  >
+                    រក្សាទុក
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Recent Audit Activity */}
         <div className="glass-panel rounded-3xl p-6">

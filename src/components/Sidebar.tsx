@@ -267,6 +267,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'DIRECTOR', 'SCHOOL_ADMIN', 'TEACHER', 'STUDENT', 'PARENT']
         },
         {
+          id: 'academic_calendar',
+          labelKhmer: 'ប្រតិទិនអប់រំ & ព្រឹត្តិការណ៍',
+          labelEnglish: 'Academic Calendar',
+          icon: CalendarDays,
+          allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'DIRECTOR', 'SCHOOL_ADMIN', 'TEACHER', 'STUDENT', 'PARENT', 'ACCOUNTANT', 'LIBRARIAN', 'STAFF']
+        },
+        {
           id: 'exams_grades',
           labelKhmer: 'ការប្រឡង & ពិន្ទុ',
           labelEnglish: 'Exams & Grades',

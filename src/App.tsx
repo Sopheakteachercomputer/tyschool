@@ -62,6 +62,7 @@ import { TimetableView } from './components/TimetableView';
 import { AssignmentsView } from './components/AssignmentsView';
 import { LibraryView } from './components/LibraryView';
 import { AnnouncementsView } from './components/AnnouncementsView';
+import { AcademicCalendarView } from './components/AcademicCalendarView';
 import { NotificationsView } from './components/NotificationsView';
 import { CertificatesView } from './components/CertificatesView';
 import { ReportsCenterView } from './components/ReportsCenterView';
@@ -668,6 +669,12 @@ export default function App() {
     logAction('CREATE', 'Events', `បន្ថែមព្រឹត្តិការណ៍: ${ev.titleKhmer}`);
   };
 
+  const handleSaveEventsBatch = (newEvents: SchoolEvent[]) => {
+    storageService.saveEventsBatch(newEvents);
+    setEvents(storageService.getEvents());
+    logAction('CREATE', 'Events', `បញ្ចូលព្រឹត្តិការណ៍ជាក្រុមចំនួន ${newEvents.length}`);
+  };
+
   const handleDeleteEvent = (id: string) => {
     storageService.deleteEvent(id);
     setEvents(storageService.getEvents());
@@ -943,6 +950,7 @@ export default function App() {
                   exams={exams}
                   announcements={announcements}
                   events={events}
+                  onSaveEvent={handleSaveEvent}
                   notifications={notifications}
                   onSelectNotification={handleSelectNotification}
                   onOpenSendNotification={() => {
@@ -1213,6 +1221,18 @@ export default function App() {
                 onSaveEvent={handleSaveEvent}
                 onDeleteEvent={handleDeleteEvent}
                 userRole={currentRole}
+              />
+            )}
+
+            {(activeTab === 'academic_calendar' || activeTab === 'events') && (
+              <AcademicCalendarView
+                events={events}
+                onSaveEvent={handleSaveEvent}
+                onDeleteEvent={handleDeleteEvent}
+                onSaveEventsBatch={handleSaveEventsBatch}
+                userRole={currentRole}
+                language={language}
+                classes={classes}
               />
             )}
 

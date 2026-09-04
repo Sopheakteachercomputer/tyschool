@@ -53,6 +53,7 @@ export type NavTab =
   | 'library'
   | 'announcements'
   | 'events'
+  | 'academic_calendar'
   | 'certificates'
   | 'reports'
   | 'audit_logs'
@@ -638,9 +639,21 @@ export interface SchoolEvent {
   titleEnglish?: string;
   startDate: string;
   endDate: string;
-  type: 'HOLIDAY' | 'EXAM' | 'MEETING' | 'SPORTS' | 'GRADUATION' | 'FESTIVAL' | 'EVENT' | 'CEREMONY';
+  startTime?: string;
+  endTime?: string;
+  isAllDay?: boolean;
+  type: 'HOLIDAY' | 'EXAM' | 'MEETING' | 'SPORTS' | 'GRADUATION' | 'FESTIVAL' | 'EVENT' | 'CEREMONY' | 'ACADEMIC';
   description: string;
   location?: string;
+  targetAudience?: 'ALL' | 'TEACHERS' | 'STUDENTS' | 'PARENTS' | 'CLASS';
+  targetClass?: string;
+  targetGrade?: string;
+  color?: string;
+  isImportant?: boolean;
+  academicYear?: string;
+  semester?: 'SEMESTER_1' | 'SEMESTER_2' | 'ALL';
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export interface CertificateRecord {
