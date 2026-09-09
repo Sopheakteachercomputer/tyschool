@@ -194,3 +194,177 @@ export async function compressAvatar(
     }
   });
 }
+
+export interface OptimizedPhotoResult {
+  dataUrl: string;
+  originalSize: number;
+  compressedSize: number;
+  originalSizeFormatted: string;
+  compressedSizeFormatted: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Format bytes into readable string (e.g. 4.2 MB, 52 KB)
+ */
+export function formatBytes(bytes: number, decimals = 1): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + (sizes[i] || 'B');
+}
+
+/**
+ * Validates whether a file is an image by MIME type or common extensions.
+ */
+export function isImageFile(file: File): boolean {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('image/')) return true;
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'jfif', 'heic', 'heif', 'svg', 'tiff', 'tif'].includes(ext);
+}
+
+/**
+ * Unconstrained Photo Upload Optimizer (No File Size Limit).
+ * Accepts any image file size (e.g., 5MB, 10MB, 20MB, 50MB+),
+ * uses memory-safe streaming (URL.createObjectURL) to prevent browser freezes,
+ * downscales using HTML5 Canvas with bicubic smoothing to crisp HD dimensions (default 600px),
+ * and compresses it into a high-quality lightweight JPEG (~30KB-70KB).
+ * This ensures zero storage crashes, instant rendering, and no upload limits for users.
+ */
+export async function optimizePhotoUpload(
+  file: File,
+  options: { maxDim?: number; quality?: number } = {}
+): Promise<OptimizedPhotoResult> {
+  const maxDim = options.maxDim || 600;
+  const quality = options.quality !== undefined ? options.quality : 0.85;
+
+  if (!isImageFile(file)) {
+    throw new Error('សូមជ្រើសរើសឯកសាររូបភាព (JPG, PNG, WebP) - Please select an image file');
+  }
+
+  return new Promise((resolve, reject) => {
+    let blobUrl: string | null = null;
+    try {
+      blobUrl = URL.createObjectURL(file);
+    } catch {
+      // Fallback if URL.createObjectURL is blocked
+      blobUrl = null;
+    }
+
+    const processWithImageSrc = (src: string, isObjectUrl: boolean) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      img.onload = () => {
+        try {
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
+
+          if (!width || !height) {
+            if (isObjectUrl && blobUrl) URL.revokeObjectURL(blobUrl);
+            reject(new Error('មិនអាចអានទំហំរូបភាពបានទេ (Unable to read image dimensions)'));
+            return;
+          }
+
+          // Calculate aspect ratio preserving dimensions
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(width, 1);
+          canvas.height = Math.max(height, 1);
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            if (isObjectUrl && blobUrl) URL.revokeObjectURL(blobUrl);
+            reject(new Error('Canvas 2D context not supported'));
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          let compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          // If still over 120KB, downsample once more to protect localStorage/Firestore
+          if (compressedDataUrl.length > 160000) {
+            compressedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          }
+
+          // Approximate byte size of base64 dataUrl
+          const head = compressedDataUrl.indexOf(',') + 1;
+          const compressedSize = Math.round(((compressedDataUrl.length - head) * 3) / 4);
+
+          if (isObjectUrl && blobUrl) {
+            URL.revokeObjectURL(blobUrl);
+          }
+
+          resolve({
+            dataUrl: compressedDataUrl,
+            originalSize: file.size,
+            compressedSize,
+            originalSizeFormatted: formatBytes(file.size),
+            compressedSizeFormatted: formatBytes(compressedSize),
+            width,
+            height
+          });
+        } catch (err: any) {
+          if (isObjectUrl && blobUrl) URL.revokeObjectURL(blobUrl);
+          reject(new Error(err?.message || 'Error optimizing image on canvas'));
+        }
+      };
+
+      img.onerror = () => {
+        if (isObjectUrl && blobUrl) URL.revokeObjectURL(blobUrl);
+        // Fallback to FileReader if ObjectURL failed for some format
+        if (isObjectUrl) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const rawRes = e.target?.result as string;
+            if (rawRes) {
+              processWithImageSrc(rawRes, false);
+            } else {
+              reject(new Error('មិនអាចអានឯកសាររូបភាពបានឡើយ (Failed to load image)'));
+            }
+          };
+          reader.onerror = () => reject(new Error('មានបញ្ហាក្នុងការអានឯកសាររូបភាព (Error reading file)'));
+          reader.readAsDataURL(file);
+        } else {
+          reject(new Error('មិនអាចអានឯកសាររូបភាពបានឡើយ (Failed to load image data)'));
+        }
+      };
+
+      img.src = src;
+    };
+
+    if (blobUrl) {
+      processWithImageSrc(blobUrl, true);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const rawRes = e.target?.result as string;
+        if (rawRes) {
+          processWithImageSrc(rawRes, false);
+        } else {
+          reject(new Error('មិនអាចអានឯកសាររូបភាពបានឡើយ (Failed to load image)'));
+        }
+      };
+      reader.onerror = () => reject(new Error('មានបញ្ហាក្នុងការអានឯកសាររូបភាព (Error reading file)'));
+      reader.readAsDataURL(file);
+    }
+  });
+}

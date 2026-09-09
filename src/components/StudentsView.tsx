@@ -35,12 +35,14 @@ import {
   Image as ImageIcon,
   Loader2,
   Link as LinkIcon,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { exportToCSV, isFemaleGender, isMaleGender, getGenderKhmer } from '../utils/formatters';
 import { StudentExcelImportModal } from './StudentExcelImportModal';
 import { PaymentQrModal } from './PaymentQrModal';
 import { StudentPhotoUploadModal } from './StudentPhotoUploadModal';
+import { optimizePhotoUpload } from '../utils/imageCompressor';
 
 const STUDENT_PHOTO_PRESETS = [
   { id: 'p1', label: 'ស្រី ១', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' },
@@ -145,6 +147,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const formFileInputRef = useRef<HTMLInputElement>(null);
   const [isPhotoProcessing, setIsPhotoProcessing] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [photoUploadSuccessInfo, setPhotoUploadSuccessInfo] = useState<string | null>(null);
   const [showPhotoUrlInput, setShowPhotoUrlInput] = useState(false);
   const [photoUrlInputValue, setPhotoUrlInputValue] = useState('');
   const [isPhotoDragging, setIsPhotoDragging] = useState(false);
@@ -279,72 +282,26 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     }
   };
 
-  const handleFormPhotoFile = (file: File) => {
+  const handleFormPhotoFile = async (file: File) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setPhotoUploadError('សូមជ្រើសរើសឯកសាររូបភាព (JPG, PNG, WebP) - Please select an image file');
-      return;
-    }
     setIsPhotoProcessing(true);
     setPhotoUploadError(null);
+    setPhotoUploadSuccessInfo(null);
 
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setPhotoUploadError('មានបញ្ហាក្នុងការអានឯកសាររូបភាព (Error reading file)');
+    try {
+      // Unconstrained upload: accepts ANY photo size without limit (1MB, 10MB, 25MB, 50MB+)
+      // Uses memory-safe object URL downscaling to ~600px HD and compresses to compact ~40-70KB
+      const result = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+      setFormData(prev => ({ ...prev, photo: result.dataUrl }));
+      setPhotoUploadSuccessInfo(
+        `ផ្ទុកជោគជ័យ! (${result.originalSizeFormatted} ➔ ${result.compressedSizeFormatted} • មិនកំណត់ទំហំ / No Limit)`
+      );
+    } catch (err: any) {
+      console.error('Photo optimization error:', err);
+      setPhotoUploadError(err?.message || 'មានបញ្ហាក្នុងការផ្ទុករូបភាព (Error uploading photo)');
+    } finally {
       setIsPhotoProcessing(false);
-    };
-
-    reader.onload = (event) => {
-      const rawDataUrl = event.target?.result as string;
-      if (!rawDataUrl) {
-        setIsPhotoProcessing(false);
-        return;
-      }
-
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const maxDim = 450;
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxDim) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
-            setFormData(prev => ({ ...prev, photo: optimizedDataUrl }));
-          } else {
-            setFormData(prev => ({ ...prev, photo: rawDataUrl }));
-          }
-        } catch (err) {
-          setFormData(prev => ({ ...prev, photo: rawDataUrl }));
-        } finally {
-          setIsPhotoProcessing(false);
-        }
-      };
-
-      img.onerror = () => {
-        setFormData(prev => ({ ...prev, photo: rawDataUrl }));
-        setIsPhotoProcessing(false);
-      };
-
-      img.src = rawDataUrl;
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleReturnToSchool = (student: Student) => {
@@ -592,6 +549,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       semester: 'ឆមាសទី១',
       payment_by: ''
     });
+    setPhotoUploadError(null);
+    setPhotoUploadSuccessInfo(null);
+    setShowPhotoUrlInput(false);
     setModalOpen(true);
   };
 
@@ -618,6 +578,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       time_study: student.time_study || student.timeStudy || '',
       payment_by: student.payment_by || student.paymentBy || ''
     });
+    setPhotoUploadError(null);
+    setPhotoUploadSuccessInfo(null);
+    setShowPhotoUrlInput(false);
     setModalOpen(true);
   };
 
@@ -1279,7 +1242,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <input
                   ref={formFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.heif,.bmp,.gif"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -1295,7 +1258,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   <div 
                     onClick={() => formFileInputRef.current?.click()}
                     className="relative group cursor-pointer flex-shrink-0"
-                    title="ចុចដើម្បីជ្រើសរើសរូបថត (Click to upload photo)"
+                    title="ចុចដើម្បីជ្រើសរើសរូបថត (Click to upload photo - No size limit)"
                   >
                     <img
                       src={formData.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
@@ -1316,18 +1279,22 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div className="flex-1 space-y-2 text-center sm:text-left w-full">
-                    <div className="flex items-center justify-between">
-                      <p className="text-white font-bold font-battambang text-sm flex items-center gap-1.5">
+                    <div className="flex items-center justify-between flex-wrap gap-1.5">
+                      <p className="text-white font-bold font-battambang text-sm flex items-center gap-1.5 flex-wrap">
                         <span>រូបថតសិស្ស (Student Photo)</span>
                         {formData.photo && (
-                          <span className="text-[10px] text-emerald-400 font-sans font-normal px-1.5 py-0.2 bg-emerald-500/10 rounded border border-emerald-500/20">
-                            ✓ រួចរាល់
+                          <span className="text-[10px] text-emerald-400 font-sans font-normal px-1.5 py-0.5 bg-emerald-500/10 rounded border border-emerald-500/20 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400 inline" />
+                            <span>រួចរាល់</span>
                           </span>
                         )}
+                        <span className="text-[10px] text-indigo-300 font-sans px-2 py-0.5 bg-indigo-500/15 rounded-md border border-indigo-500/30 flex items-center gap-1">
+                          <span>⚡ មិនកំណត់ទំហំ (No Limit Upload)</span>
+                        </span>
                       </p>
                     </div>
                     <p className="text-slate-400 text-[11px]">
-                      លោកអ្នកអាចផ្ទុករូបថតផ្ទាល់ (JPG, PNG, WebP) ទម្លាក់រូបភាព ឬជ្រើសរូបភាពគំរូ
+                      លោកអ្នកអាចផ្ទុករូបថតផ្ទាល់ (JPG, PNG, WebP) ទម្លាក់រូបភាព ឬជ្រើសរូបភាពគំរូ • មិនកំណត់ទំហំផ្ទុក (Auto-compressed)
                     </p>
                     
                     {/* Action Buttons */}
@@ -1362,7 +1329,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       {formData.photo && (
                         <button
                           type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, photo: '' }))}
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, photo: '' }));
+                            setPhotoUploadSuccessInfo(null);
+                            setPhotoUploadError(null);
+                          }}
                           className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-semibold transition border border-white/10"
                         >
                           ប្រើរូបលំនាំដើម
@@ -1371,6 +1342,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Success Banner */}
+                {photoUploadSuccessInfo && (
+                  <div className="mt-2.5 p-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-xl text-[11px] flex items-center gap-1.5 font-battambang">
+                    <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                    <span>{photoUploadSuccessInfo}</span>
+                  </div>
+                )}
 
                 {/* Error Banner */}
                 {photoUploadError && (

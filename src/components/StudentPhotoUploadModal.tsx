@@ -18,6 +18,7 @@ import {
   Layers,
   GraduationCap
 } from 'lucide-react';
+import { optimizePhotoUpload, isImageFile } from '../utils/imageCompressor';
 
 interface StudentPhotoUploadModalProps {
   isOpen: boolean;
@@ -113,60 +114,18 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
     );
   });
 
-  // Helper to optimize and resize images to max 400x400 DataURL to keep localStorage lean
-  const processImageFile = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      if (!file.type.startsWith('image/')) {
-        reject(new Error('ឯកសារមិនមែនជារូបភាពទេ (Please select an image file)'));
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxDim = 450;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > maxDim) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            resolve(dataUrl);
-          } else {
-            resolve(e.target?.result as string);
-          }
-        };
-        img.onerror = () => reject(new Error('មិនអាចអានទិន្នន័យរូបភាពបានឡើយ'));
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = () => reject(new Error('មានបញ្ហាក្នុងការអានឯកសារ'));
-      reader.readAsDataURL(file);
-    });
+  // Helper to optimize and resize images with NO file size limit, downscaling to crisp HD DataURL
+  const processImageFile = async (file: File): Promise<string> => {
+    const res = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+    return res.dataUrl;
   };
 
   const handleSingleFileSelect = async (file: File) => {
     setErrorMessage(null);
     try {
-      const dataUrl = await processImageFile(file);
-      setPreviewPhotoUrl(dataUrl);
-      setSuccessMessage('បានផ្ទុករូបភាពរួចរាល់! សូមចុចប៊ូតុង "រក្សាទុករូបថត" ដើម្បីអនុវត្ត។');
+      const res = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+      setPreviewPhotoUrl(res.dataUrl);
+      setSuccessMessage(`បានផ្ទុករូបភាពរួចរាល់ (${res.originalSizeFormatted} ➔ ${res.compressedSizeFormatted} • មិនកំណត់ទំហំ)! សូមចុចប៊ូតុង "រក្សាទុករូបថត" ដើម្បីអនុវត្ត។`);
     } catch (err: any) {
       setErrorMessage(err.message || 'មានបញ្ហាក្នុងការផ្ទុករូបភាព');
     }
@@ -248,7 +207,7 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (!file.type.startsWith('image/')) continue;
+      if (!isImageFile(file)) continue;
 
       const baseName = file.name.replace(/\.[^/.]+$/, '').trim().toLowerCase();
       // Match by studentCode, id, nameKhmer, or nameEnglish
@@ -504,12 +463,13 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.heif,.bmp,.gif"
                     className="hidden"
                     onChange={e => {
                       if (e.target.files && e.target.files[0]) {
                         handleSingleFileSelect(e.target.files[0]);
                       }
+                      e.target.value = '';
                     }}
                   />
 
@@ -531,11 +491,16 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                     }`}
                   >
                     <Upload className="w-8 h-8 mx-auto text-indigo-400 mb-2 animate-bounce" />
-                    <p className="text-xs font-bold text-white font-battambang">
-                      ចុច ឬទម្លាក់រូបថតសិស្សទីនេះ
-                    </p>
+                    <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                      <p className="text-xs font-bold text-white font-battambang">
+                        ចុច ឬទម្លាក់រូបថតសិស្សទីនេះ
+                      </p>
+                      <span className="text-[10px] text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 rounded-full font-sans">
+                        ⚡ មិនកំណត់ទំហំ
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      គាំទ្ររូបភាព PNG, JPG, JPEG, WebP (ទំហំត្រូវបាន optimize ដោយស្វ័យប្រវត្តិ)
+                      គាំទ្ររូបភាព JPG, PNG, WebP • មិនកំណត់ទំហំផ្ទុក (Auto-compressed HD)
                     </p>
                   </div>
 
@@ -658,12 +623,13 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                 ref={batchFileInputRef}
                 type="file"
                 multiple
-                accept="image/*"
+                accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.heif,.bmp,.gif"
                 className="hidden"
                 onChange={e => {
                   if (e.target.files) {
                     handleBatchFilesSelect(e.target.files);
                   }
+                  e.target.value = '';
                 }}
               />
 
@@ -672,11 +638,16 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                 className="p-6 border-2 border-dashed border-white/20 hover:border-emerald-400 bg-white/5 hover:bg-white/10 rounded-2xl text-center cursor-pointer transition"
               >
                 <FolderUp className="w-8 h-8 mx-auto text-emerald-400 mb-2" />
-                <p className="text-xs font-bold text-white font-battambang">
-                  ជ្រើសរើសរូបថតសិស្សច្រើនព្រមគ្នា (Select Multiple Photos)
-                </p>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <p className="text-xs font-bold text-white font-battambang">
+                    ជ្រើសរើសរូបថតសិស្សច្រើនព្រមគ្នា (Select Multiple Photos)
+                  </p>
+                  <span className="text-[10px] text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-full font-sans">
+                    ⚡ មិនកំណត់ទំហំ
+                  </span>
+                </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  គន្លឹះ៖ ដាក់ឈ្មោះរូបភាពតាមអត្តលេខសិស្ស (ឧ. <code className="text-emerald-300">STU-2026-00001.jpg</code> ឬ <code className="text-emerald-300">ហេង ពិសិដ្ឋ.png</code>) ប្រព័ន្ធនឹងផ្គូផ្គងស្វ័យប្រវត្តិ!
+                  មិនកំណត់ទំហំឯកសារ (Auto-compressed) • គន្លឹះ៖ ដាក់ឈ្មោះរូបភាពតាមអត្តលេខសិស្ស (ឧ. <code className="text-emerald-300">STU-2026-00001.jpg</code> ឬ <code className="text-emerald-300">ហេង ពិសិដ្ឋ.png</code>) ប្រព័ន្ធនឹងផ្គូផ្គងស្វ័យប្រវត្តិ!
                 </p>
               </div>
 

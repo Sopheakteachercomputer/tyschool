@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(({ command, mode }) => {
-  // Use '/tyschool/' for production builds or when building for GitHub Pages, '/' in dev mode
-  const base = process.env.BASE_PATH || (mode === 'production' || command === 'build' ? '/tyschool/' : '/');
+export default defineConfig(() => {
+  // Use BASE_PATH env var if provided (e.g. GitHub Pages build:client), default to '/'
+  const base = process.env.BASE_PATH || '/';
 
   return {
     base,

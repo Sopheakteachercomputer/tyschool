@@ -130,25 +130,37 @@ function cleanUpStorageQuota(): void {
     // 1. Prune audit logs to last 20
     const auditStr = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
     if (auditStr) {
-      const logs = JSON.parse(auditStr);
-      if (Array.isArray(logs) && logs.length > 20) {
-        localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(logs.slice(0, 20)));
+      try {
+        const logs = JSON.parse(auditStr);
+        if (Array.isArray(logs) && logs.length > 20) {
+          localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(logs.slice(0, 20)));
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS);
       }
     }
     // 2. Prune notifications to last 20
     const notifStr = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
     if (notifStr) {
-      const notifs = JSON.parse(notifStr);
-      if (Array.isArray(notifs) && notifs.length > 20) {
-        localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifs.slice(0, 20)));
+      try {
+        const notifs = JSON.parse(notifStr);
+        if (Array.isArray(notifs) && notifs.length > 20) {
+          localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifs.slice(0, 20)));
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.NOTIFICATIONS);
       }
     }
     // 3. Prune chat messages to last 30
     const chatStr = localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES);
     if (chatStr) {
-      const chats = JSON.parse(chatStr);
-      if (Array.isArray(chats) && chats.length > 30) {
-        localStorage.setItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(chats.slice(-30)));
+      try {
+        const chats = JSON.parse(chatStr);
+        if (Array.isArray(chats) && chats.length > 30) {
+          localStorage.setItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(chats.slice(-30)));
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.CHAT_MESSAGES);
       }
     }
   } catch (err) {

@@ -522,14 +522,75 @@ export const GeminiAiStudioView: React.FC<GeminiAiStudioViewProps> = ({ currentU
 
         {/* Global Alert Notification */}
         {errorMessage && (
-          <div className="mt-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center justify-between animate-in fade-in">
-            <div className="flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{errorMessage}</span>
+          <div
+            id="ai-studio-error-banner"
+            className={`mt-4 p-4 rounded-2xl border text-xs animate-in fade-in ${
+              errorMessage.includes('429') ||
+              errorMessage.includes('Quota') ||
+              errorMessage.includes('កូតា') ||
+              errorMessage.includes('RESOURCE_EXHAUSTED')
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-100'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-start space-x-3">
+                <AlertCircle
+                  className={`w-5 h-5 shrink-0 mt-0.5 ${
+                    errorMessage.includes('429') ||
+                    errorMessage.includes('Quota') ||
+                    errorMessage.includes('កូតា') ||
+                    errorMessage.includes('RESOURCE_EXHAUSTED')
+                      ? 'text-amber-400'
+                      : 'text-rose-400'
+                  }`}
+                />
+                <div>
+                  <p className="font-bold text-sm">
+                    {errorMessage.includes('429') ||
+                    errorMessage.includes('Quota') ||
+                    errorMessage.includes('កូតា') ||
+                    errorMessage.includes('RESOURCE_EXHAUSTED')
+                      ? 'កូតា Gemini API ត្រូវបានប្រើអស់ជាបណ្តោះអាសន្ន (Quota Limit - HTTP 429)'
+                      : 'មានបញ្ហាក្នុងការដំណើរការ (Action Failed)'}
+                  </p>
+                  <p className="mt-1 leading-relaxed text-slate-300">{errorMessage}</p>
+
+                  {(errorMessage.includes('429') ||
+                    errorMessage.includes('Quota') ||
+                    errorMessage.includes('កូតា') ||
+                    errorMessage.includes('RESOURCE_EXHAUSTED')) && (
+                    <div className="mt-3 pt-3 border-t border-amber-500/20 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setChatModelTier('fast');
+                          setErrorMessage(null);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-bold border border-amber-500/30 transition text-[11px]"
+                      >
+                        ⚡ ប្តូរទៅ gemini-3.1-flash-lite (សន្សំកូតា)
+                      </button>
+                      <a
+                        href="https://ai.google.dev/gemini-api/docs/rate-limits"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 font-medium transition text-[11px] inline-flex items-center space-x-1"
+                      >
+                        <span>ពិនិត្យកម្រិតកូតា (Rate Limits) ↗</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-slate-400 hover:text-white p-1 ml-3"
+                title="បិទ (Close)"
+              >
+                ✕
+              </button>
             </div>
-            <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-rose-200 p-1">
-              ✕
-            </button>
           </div>
         )}
 
@@ -604,9 +665,9 @@ export const GeminiAiStudioView: React.FC<GeminiAiStudioViewProps> = ({ currentU
               <label className="text-slate-400 block mb-1 font-bold">កម្រិតម៉ូឌែល (Model Tier):</label>
               <div className="space-y-2">
                 {[
-                  { id: 'general', name: 'gemini-3.5-flash', desc: 'សមតុល្យល្បឿន និងឆ្លាតវៃខ្ពស់ (General Tasks)' },
+                  { id: 'general', name: 'gemini-3.8-flash', desc: 'សមតុល្យល្បឿន និងឆ្លាតវៃខ្ពស់ (General Tasks)' },
                   { id: 'complex', name: 'gemini-3.1-pro-preview', desc: 'ការគិតស៊ីជម្រៅ & កូដស្មុគស្មាញ (Complex Tasks)' },
-                  { id: 'fast', name: 'gemini-3.1-flash-lite', desc: 'ឆ្លើយតបរហ័សទាន់ចិត្ត (Fast Response)' },
+                  { id: 'fast', name: 'gemini-3.1-flash-lite', desc: 'ឆ្លើយតបរហ័សទាន់ចិត្ត & សន្សំកូតា (Fast & Rate-limit friendly)' },
                 ].map((tier) => (
                   <button
                     key={tier.id}
