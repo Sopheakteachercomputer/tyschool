@@ -19,13 +19,15 @@ import {
   GraduationCap
 } from 'lucide-react';
 import { optimizePhotoUpload, isImageFile } from '../utils/imageCompressor';
+import { getStudentDefaultAvatar } from '../utils/formatters';
 
 interface StudentPhotoUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   students: Student[];
-  classes: ClassRoom[];
+  classes?: ClassRoom[];
   selectedStudent?: Student | null;
+  initialSelectedStudent?: Student | null;
   onSaveStudent: (student: Student) => void;
   onSaveStudentsBatch?: (students: Student[], mode: 'APPEND' | 'REPLACE') => void;
   userRole?: UserRole | string;
@@ -35,16 +37,19 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
   isOpen,
   onClose,
   students,
-  classes,
-  selectedStudent: initialStudent,
+  classes = [],
+  selectedStudent,
+  initialSelectedStudent,
   onSaveStudent,
+  onSaveStudentsBatch,
   userRole
 }) => {
   const isSuperAdmin = !userRole || userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' || userRole === 'SCHOOL_ADMIN' || userRole === 'DIRECTOR';
+  const effectiveStudent = selectedStudent || initialSelectedStudent || null;
   const [activeTab, setActiveTab] = useState<'SINGLE' | 'BATCH' | 'CAMERA'>('SINGLE');
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudent?.id || students[0]?.id || '');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(effectiveStudent?.id || students[0]?.id || '');
   const [studentSearch, setStudentSearch] = useState('');
-  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string>('');
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string>(effectiveStudent?.photo || '');
   const [isDragging, setIsDragging] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -70,26 +75,35 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
   const [batchItems, setBatchItems] = useState<BatchMatchedItem[]>([]);
   const [batchProcessing, setBatchProcessing] = useState(false);
 
-  // Set initial selected student
+  // Sync state whenever the modal opens or targeted student changes
   useEffect(() => {
-    if (initialStudent) {
-      setSelectedStudentId(initialStudent.id);
-      setPreviewPhotoUrl(initialStudent.photo || '');
-    } else if (students.length > 0 && !selectedStudentId) {
-      setSelectedStudentId(students[0].id);
-      setPreviewPhotoUrl(students[0].photo || '');
+    if (isOpen) {
+      if (effectiveStudent) {
+        setSelectedStudentId(effectiveStudent.id);
+        setPreviewPhotoUrl(effectiveStudent.photo || '');
+      } else if (students.length > 0) {
+        const found = students.find(s => s.id === selectedStudentId) || students[0];
+        setSelectedStudentId(found.id);
+        setPreviewPhotoUrl(found.photo || '');
+      }
+      setErrorMessage(null);
+      setSuccessMessage(null);
     }
-  }, [initialStudent, students, isOpen]);
+  }, [isOpen, effectiveStudent]);
 
   // Selected student object
   const currentStudent = students.find(s => s.id === selectedStudentId);
 
-  // Update preview when current student changes if no custom preview set yet
-  useEffect(() => {
-    if (currentStudent && !previewPhotoUrl.startsWith('data:image/')) {
-      setPreviewPhotoUrl(currentStudent.photo || '');
+  // Handle manual dropdown selection of student
+  const handleSelectStudent = (newStudentId: string) => {
+    setSelectedStudentId(newStudentId);
+    const target = students.find(s => s.id === newStudentId);
+    if (target) {
+      setPreviewPhotoUrl(target.photo || '');
     }
-  }, [selectedStudentId]);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  };
 
   // Clean up camera stream on close or tab change
   useEffect(() => {
@@ -114,18 +128,18 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
     );
   });
 
-  // Helper to optimize and resize images with NO file size limit, downscaling to crisp HD DataURL
+  // Helper to optimize and resize images with NO file size limit, downscaling to crisp HD DataURL (~15KB)
   const processImageFile = async (file: File): Promise<string> => {
-    const res = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+    const res = await optimizePhotoUpload(file, { maxDim: 360, quality: 0.80 });
     return res.dataUrl;
   };
 
   const handleSingleFileSelect = async (file: File) => {
     setErrorMessage(null);
     try {
-      const res = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+      const res = await optimizePhotoUpload(file, { maxDim: 360, quality: 0.80 });
       setPreviewPhotoUrl(res.dataUrl);
-      setSuccessMessage(`បានផ្ទុករូបភាពរួចរាល់ (${res.originalSizeFormatted} ➔ ${res.compressedSizeFormatted} • មិនកំណត់ទំហំ)! សូមចុចប៊ូតុង "រក្សាទុករូបថត" ដើម្បីអនុវត្ត។`);
+      setSuccessMessage(`បានផ្ទុករូបភាពរួចរាល់ (${res.originalSizeFormatted} ➔ ${res.compressedSizeFormatted})! សូមចុចប៊ូតុង "រក្សាទុករូបថត" ដើម្បីអនុវត្ត។`);
     } catch (err: any) {
       setErrorMessage(err.message || 'មានបញ្ហាក្នុងការផ្ទុករូបភាព');
     }
@@ -153,8 +167,8 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
     onSaveStudent(updatedStudent);
     setSuccessMessage(`បានរក្សាទុករូបថតសម្រាប់ ${currentStudent.nameKhmer} (${currentStudent.studentCode}) ដោយជោគជ័យ!`);
     setTimeout(() => {
-      setSuccessMessage(null);
-    }, 3000);
+      onClose();
+    }, 700);
   };
 
   // Camera Handlers
@@ -186,12 +200,12 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
     if (!videoRef.current) return;
     const video = videoRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 400;
-    canvas.height = video.videoHeight || 400;
+    canvas.width = 360;
+    canvas.height = 360;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
       setPreviewPhotoUrl(dataUrl);
       handleStopCamera();
       setActiveTab('SINGLE');
@@ -210,20 +224,27 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
       if (!isImageFile(file)) continue;
 
       const baseName = file.name.replace(/\.[^/.]+$/, '').trim().toLowerCase();
-      // Match by studentCode, id, nameKhmer, or nameEnglish
+      // Match by studentCode, id, nameKhmer, nameEnglish, or roll number / ID number
       const matchedStudent = students.find(s => {
         const code = s.studentCode.toLowerCase();
         const id = s.id.toLowerCase();
         const khName = s.nameKhmer.toLowerCase().replace(/\s+/g, '');
         const enName = s.nameEnglish.toLowerCase().replace(/\s+/g, '');
         const cleanBase = baseName.replace(/\s+/g, '');
+        const studentNoStr = s.no !== undefined ? String(s.no) : '';
+
+        // Extract numeric sequences
+        const fileNumbers = baseName.match(/\d+/g)?.join('') || '';
+        const codeNumbers = code.match(/\d+/g)?.join('') || '';
 
         return (
           code === baseName ||
           id === baseName ||
           baseName.includes(code) ||
           cleanBase.includes(khName) ||
-          cleanBase.includes(enName)
+          cleanBase.includes(enName) ||
+          (studentNoStr && (baseName === studentNoStr || fileNumbers === studentNoStr)) ||
+          (codeNumbers && fileNumbers && codeNumbers.endsWith(fileNumbers) && fileNumbers.length >= 3)
         );
       });
 
@@ -259,23 +280,28 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
       return;
     }
 
-    let updatedCount = 0;
+    const updatedList: Student[] = [];
     matchedItems.forEach(item => {
       const targetStudent = students.find(s => s.id === item.studentId);
       if (targetStudent) {
-        onSaveStudent({
+        updatedList.push({
           ...targetStudent,
           photo: item.previewUrl
         });
-        updatedCount++;
       }
     });
 
-    setSuccessMessage(`បានធ្វើបច្ចុប្បន្នភាពរូបថតសិស្សចំនួន ${updatedCount} នាក់ដោយជោគជ័យ!`);
+    if (onSaveStudentsBatch) {
+      onSaveStudentsBatch(updatedList, 'APPEND');
+    } else {
+      updatedList.forEach(st => onSaveStudent(st));
+    }
+
+    setSuccessMessage(`បានធ្វើបច្ចុប្បន្នភាពរូបថតសិស្សចំនួន ${updatedList.length} នាក់ដោយជោគជ័យ!`);
     setBatchItems([]);
     setTimeout(() => {
-      setSuccessMessage(null);
-    }, 4000);
+      onClose();
+    }, 900);
   };
 
   return (
@@ -400,11 +426,7 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
 
                   <select
                     value={selectedStudentId}
-                    onChange={e => {
-                      setSelectedStudentId(e.target.value);
-                      const st = students.find(s => s.id === e.target.value);
-                      if (st) setPreviewPhotoUrl(st.photo || '');
-                    }}
+                    onChange={e => handleSelectStudent(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-900/80 text-xs text-indigo-200 font-battambang font-medium rounded-xl border border-indigo-500/30 outline-none"
                   >
                     {filteredStudents.map(s => (
@@ -440,9 +462,9 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                 <div className="sm:col-span-5 flex flex-col items-center justify-center p-4 bg-slate-950/60 rounded-2xl border border-white/10 text-center">
                   <div className="relative group">
                     <img
-                      src={previewPhotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300'}
+                      src={previewPhotoUrl || getStudentDefaultAvatar(currentStudent)}
                       alt="Student Preview"
-                      className="w-36 h-36 sm:w-40 sm:h-40 rounded-3xl object-cover border-2 border-indigo-400 shadow-2xl"
+                      className="w-36 h-36 sm:w-40 sm:h-40 rounded-3xl object-cover border-2 border-indigo-400 shadow-2xl bg-slate-800"
                     />
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -569,7 +591,7 @@ export const StudentPhotoUploadModal: React.FC<StudentPhotoUploadModalProps> = (
                 </label>
                 <select
                   value={selectedStudentId}
-                  onChange={e => setSelectedStudentId(e.target.value)}
+                  onChange={e => handleSelectStudent(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-900 text-xs text-indigo-200 font-battambang rounded-xl border border-indigo-500/30 outline-none"
                 >
                   {students.map(s => (

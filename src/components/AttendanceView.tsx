@@ -25,7 +25,7 @@ import {
   Activity
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { isFemaleGender, getGenderKhmer } from '../utils/formatters';
+import { isFemaleGender, getGenderKhmer, getStudentDefaultAvatar } from '../utils/formatters';
 import { playAttendanceSound } from '../utils/notificationSound';
 
 interface AttendanceViewProps {
@@ -886,9 +886,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                       <td className="py-3 px-4">
                         <div className="flex items-center space-x-2.5">
                           <img 
-                            src={st.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                            src={getStudentDefaultAvatar(st)} 
                             alt={st.nameKhmer}
-                            className="w-8 h-8 rounded-xl object-cover border border-white/20"
+                            className="w-8 h-8 rounded-xl object-cover border border-white/20 bg-slate-800"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              const fallback = getStudentDefaultAvatar({ gender: st.gender });
+                              if (target.src !== fallback) {
+                                target.src = fallback;
+                              }
+                            }}
                           />
                           <div>
                             <span className="font-mono font-bold text-indigo-300 block">{st.studentCode}</span>
@@ -1140,9 +1147,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     <div className="flex items-center space-x-3">
                       <span className="font-mono text-xs text-slate-500 font-bold w-5">{idx + 1}</span>
                       <img
-                        src={st.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                        src={getStudentDefaultAvatar(st)}
                         alt={st.nameKhmer}
-                        className="w-10 h-10 rounded-2xl object-cover border border-white/20"
+                        className="w-10 h-10 rounded-2xl object-cover border border-white/20 bg-slate-800"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          const fallback = getStudentDefaultAvatar({ gender: st.gender });
+                          if (target.src !== fallback) {
+                            target.src = fallback;
+                          }
+                        }}
                       />
                       <div>
                         <div className="flex items-center gap-2">

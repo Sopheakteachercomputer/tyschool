@@ -38,7 +38,7 @@ import {
   AlertCircle,
   CheckCircle2
 } from 'lucide-react';
-import { exportToCSV, isFemaleGender, isMaleGender, getGenderKhmer } from '../utils/formatters';
+import { exportToCSV, isFemaleGender, isMaleGender, getGenderKhmer, getStudentDefaultAvatar } from '../utils/formatters';
 import { StudentExcelImportModal } from './StudentExcelImportModal';
 import { PaymentQrModal } from './PaymentQrModal';
 import { StudentPhotoUploadModal } from './StudentPhotoUploadModal';
@@ -290,8 +290,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     try {
       // Unconstrained upload: accepts ANY photo size without limit (1MB, 10MB, 25MB, 50MB+)
-      // Uses memory-safe object URL downscaling to ~600px HD and compresses to compact ~40-70KB
-      const result = await optimizePhotoUpload(file, { maxDim: 600, quality: 0.85 });
+      // Uses memory-safe object URL downscaling to ~360px HD and compresses to compact ~15KB
+      const result = await optimizePhotoUpload(file, { maxDim: 360, quality: 0.80 });
       setFormData(prev => ({ ...prev, photo: result.dataUrl }));
       setPhotoUploadSuccessInfo(
         `ផ្ទុកជោគជ័យ! (${result.originalSizeFormatted} ➔ ${result.compressedSizeFormatted} • មិនកំណត់ទំហំ / No Limit)`
@@ -529,7 +529,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       province: 'រាជធានីភ្នំពេញ',
       phone: '',
       email: '',
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+      photo: '',
       grade: '12',
       classId: classes[0]?.id || 'CLS-12A',
       className: classes[0]?.name || 'ថ្នាក់ទី១២ A',
@@ -626,7 +626,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       province: formData.province || 'រាជធានីភ្នំពេញ',
       phone: formData.phone || '',
       email: formData.email || '',
-      photo: formData.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+      photo: formData.photo || '',
       grade: isOtherClass ? 'Other' : (formData.grade || selectedCls?.grade || '12'),
       classId: isOtherClass ? 'CLS-OTHER' : (formData.classId || classes[0]?.id || 'CLS-12A'),
       className: isOtherClass 
@@ -960,9 +960,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <div className="flex items-center space-x-3">
                         <div className="relative group flex-shrink-0">
                           <img 
-                            src={student.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                            src={getStudentDefaultAvatar(student)} 
                             alt={student.nameKhmer}
-                            className="w-10 h-10 rounded-2xl object-cover border border-white/20 shadow-md group-hover:border-indigo-400 transition" 
+                            className="w-10 h-10 rounded-2xl object-cover border border-white/20 shadow-md group-hover:border-indigo-400 transition bg-slate-800" 
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              const fallback = getStudentDefaultAvatar({ gender: student.gender });
+                              if (target.src !== fallback) {
+                                target.src = fallback;
+                              }
+                            }}
                           />
                           {isSuperAdmin && (
                             <button
@@ -972,7 +979,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                 setIsPhotoUploadModalOpen(true);
                               }}
                               className="absolute inset-0 bg-slate-950/70 rounded-2xl opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-white"
-                              title="ចុចដើម្បីប្តូររូបថតសិស្ស (Upload Student Photo)"
+                              title={`ប្តូររូបថតសម្រាប់ ${student.nameKhmer} (${student.studentCode})`}
                             >
                               <Camera className="w-4 h-4 text-indigo-300" />
                             </button>
@@ -1261,9 +1268,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     title="ចុចដើម្បីជ្រើសរើសរូបថត (Click to upload photo - No size limit)"
                   >
                     <img
-                      src={formData.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                      src={getStudentDefaultAvatar(formData)}
                       alt="Student Preview"
-                      className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-500/50 shadow-lg group-hover:border-indigo-400 transition"
+                      className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-500/50 shadow-lg group-hover:border-indigo-400 transition bg-slate-800"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        const fallback = getStudentDefaultAvatar({ gender: formData.gender });
+                        if (target.src !== fallback) {
+                          target.src = fallback;
+                        }
+                      }}
                     />
                     <div className="absolute inset-0 bg-black/50 rounded-2xl opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-white text-[10px] font-semibold gap-0.5">
                       <Camera className="w-5 h-5 text-indigo-300" />
@@ -1797,9 +1811,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               <div className="flex items-center space-x-4">
                 <div className="relative group flex-shrink-0">
                   <img 
-                    src={profileModalStudent.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                    src={getStudentDefaultAvatar(profileModalStudent)} 
                     alt={profileModalStudent.nameKhmer}
-                    className="w-20 h-20 rounded-2xl object-cover border border-white/30 shadow-xl" 
+                    className="w-20 h-20 rounded-2xl object-cover border border-white/30 shadow-xl bg-slate-800" 
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      const fallback = getStudentDefaultAvatar({ gender: profileModalStudent.gender });
+                      if (target.src !== fallback) {
+                        target.src = fallback;
+                      }
+                    }}
                   />
                   {isSuperAdmin && (
                     <button
@@ -2027,9 +2048,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           setSelectedStudentForPhoto(null);
         }}
         students={students}
+        classes={classes}
+        selectedStudent={selectedStudentForPhoto}
         initialSelectedStudent={selectedStudentForPhoto}
         onSaveStudent={onSaveStudent}
         onSaveStudentsBatch={onSaveStudentsBatch}
+        userRole={userRole}
       />
 
     </div>

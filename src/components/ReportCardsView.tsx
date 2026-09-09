@@ -8,7 +8,7 @@ import {
   SchoolProfile 
 } from '../types';
 import { FileText, Printer, Award, Building, UserCheck, CheckCircle, Search, ChevronRight } from 'lucide-react';
-import { calculateKhmerGrade } from '../utils/formatters';
+import { calculateKhmerGrade, getStudentDefaultAvatar } from '../utils/formatters';
 
 interface ReportCardsViewProps {
   students: Student[];
@@ -144,9 +144,16 @@ export const ReportCardsView: React.FC<ReportCardsViewProps> = ({
 
                 <div className="flex items-center space-x-3.5 mt-3">
                   <img 
-                    src={student.photo} 
+                    src={getStudentDefaultAvatar(student)} 
                     alt={student.nameKhmer} 
-                    className="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-2xs"
+                    className="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-2xs bg-slate-100"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      const fallback = getStudentDefaultAvatar({ gender: student.gender });
+                      if (target.src !== fallback) {
+                        target.src = fallback;
+                      }
+                    }}
                   />
                   <div>
                     <h3 className="font-bold text-slate-900 font-battambang text-sm">{student.nameKhmer}</h3>

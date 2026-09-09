@@ -1,7 +1,7 @@
 import React from 'react';
 import { Student, SchoolProfile } from '../types';
 import { Printer, X, QrCode, ShieldCheck, Phone, Calendar, BookOpen } from 'lucide-react';
-import { formatGender } from '../utils/formatters';
+import { formatGender, getStudentDefaultAvatar } from '../utils/formatters';
 
 interface IdCardModalProps {
   student: Student;
@@ -76,9 +76,16 @@ export const IdCardModal: React.FC<IdCardModalProps> = ({ student, school, onClo
             <div className="flex flex-col items-center text-center my-auto z-10">
               <div className="relative mb-3">
                 <img 
-                  src={student.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                  src={getStudentDefaultAvatar(student)} 
                   alt={student.nameKhmer}
-                  className="w-24 h-28 object-cover rounded-xl border-2 border-white shadow-md"
+                  className="w-24 h-28 object-cover rounded-xl border-2 border-white shadow-md bg-slate-800"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    const fallback = getStudentDefaultAvatar({ gender: student.gender });
+                    if (target.src !== fallback) {
+                      target.src = fallback;
+                    }
+                  }}
                 />
                 <span className="absolute -bottom-2 -right-2 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow">
                   {student.grade ? `ថ្នាក់ទី ${student.grade}` : 'សិស្ស'}

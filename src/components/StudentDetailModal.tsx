@@ -25,7 +25,7 @@ import {
   TrendingUp,
   LineChart as LineChartIcon
 } from 'lucide-react';
-import { calculateKhmerGrade, formatBothCurrencies, formatGender } from '../utils/formatters';
+import { calculateKhmerGrade, formatBothCurrencies, formatGender, getStudentDefaultAvatar } from '../utils/formatters';
 import { PaymentQrModal } from './PaymentQrModal';
 import { StorageService } from '../services/storageService';
 import { StudentProgressTracker } from './StudentProgressTracker';
@@ -138,9 +138,16 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/5 print:hidden">
           <div className="flex items-center space-x-3">
             <img
-              src={student.photo}
+              src={getStudentDefaultAvatar(student)}
               alt={student.nameKhmer}
-              className="w-11 h-11 rounded-2xl object-cover border border-white/20 shadow-md"
+              className="w-11 h-11 rounded-2xl object-cover border border-white/20 shadow-md bg-slate-800"
+              onError={(e) => {
+                const target = e.currentTarget;
+                const fallback = getStudentDefaultAvatar({ gender: student.gender });
+                if (target.src !== fallback) {
+                  target.src = fallback;
+                }
+              }}
             />
             <div>
               <h3 className="font-bold text-white font-battambang text-base leading-tight">
@@ -286,9 +293,16 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     <div className="shrink-0 text-center">
                       <div className="relative">
                         <img
-                          src={student.photo}
+                          src={getStudentDefaultAvatar(student)}
                           alt={student.nameKhmer}
-                          className="w-20 h-24 rounded-2xl object-cover border-2 border-amber-400 shadow-md"
+                          className="w-20 h-24 rounded-2xl object-cover border-2 border-amber-400 shadow-md bg-slate-800"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            const fallback = getStudentDefaultAvatar({ gender: student.gender });
+                            if (target.src !== fallback) {
+                              target.src = fallback;
+                            }
+                          }}
                         />
                         <span className="absolute bottom-1 right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-indigo-950"></span>
                       </div>

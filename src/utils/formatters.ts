@@ -136,3 +136,15 @@ export const getGenderKhmer = (gender?: string | null): string => {
 export const getGenderEnglish = (gender?: string | null): string => {
   return isFemaleGender(gender) ? 'Female' : 'Male';
 };
+
+export const getStudentDefaultAvatar = (student?: { photo?: string; gender?: any; nameKhmer?: string } | null): string => {
+  if (student?.photo && student.photo.trim() !== '') {
+    return student.photo;
+  }
+  if (isFemaleGender(student?.gender)) {
+    // Female student portrait
+    return 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80';
+  }
+  // Male student portrait
+  return 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80';
+};
