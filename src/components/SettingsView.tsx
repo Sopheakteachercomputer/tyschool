@@ -58,13 +58,15 @@ import {
   ToggleRight,
   Info,
   Link2,
-  Unlink
+  Unlink,
+  Cloud
 } from 'lucide-react';
 import { CertificateBackgroundModal, CERTIFICATE_PRESETS } from './CertificateBackgroundModal';
 import { storageService } from '../services/storageService';
 import { roleLabels } from './Navbar';
-import { FirebaseAuthService, auth, type FirebaseAuthErrorDetail } from '../services/firebase';
+import { FirebaseAuthService, auth, getCachedDriveAccessToken, setCachedDriveAccessToken, type FirebaseAuthErrorDetail } from '../services/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
+import { googleDriveService, type DriveStorageQuota, type DriveBackupFileInfo, formatBytes } from '../services/googleDriveService';
 
 interface SettingsViewProps {
   school: SchoolProfile;
@@ -331,6 +333,188 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   }, [logsClearedSuccess, cacheClearedSuccess]);
 
+  // Google Drive Cloud Storage State
+  const [driveToken, setDriveToken] = useState<string | null>(() => getCachedDriveAccessToken());
+  const [driveQuota, setDriveQuota] = useState<DriveStorageQuota | null>(null);
+  const [driveBackupFile, setDriveBackupFile] = useState<DriveBackupFileInfo | null>(null);
+  const [isDriveConnecting, setIsDriveConnecting] = useState(false);
+  const [isDriveSyncing, setIsDriveSyncing] = useState(false);
+  const [isDriveRestoring, setIsDriveRestoring] = useState(false);
+  const [driveProgressText, setDriveProgressText] = useState<string | null>(null);
+  const [driveFeedback, setDriveFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    messageKhmer: string;
+    messageEnglish: string;
+  } | null>(null);
+  const [lastDriveSyncTime, setLastDriveSyncTime] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('LAST_GOOGLE_DRIVE_SYNC');
+    } catch {
+      return null;
+    }
+  });
+  const [autoSyncToDrive, setAutoSyncToDrive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('AUTO_SYNC_GOOGLE_DRIVE') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const refreshDriveStatus = async (token: string) => {
+    try {
+      const [quota, file] = await Promise.all([
+        googleDriveService.getDriveQuota(token).catch(err => {
+          console.warn("Could not fetch Drive quota:", err);
+          return null;
+        }),
+        googleDriveService.findBackupFile(token).catch(err => {
+          console.warn("Could not find backup file:", err);
+          return null;
+        })
+      ]);
+      if (quota) setDriveQuota(quota);
+      if (file) setDriveBackupFile(file);
+    } catch (e) {
+      console.warn("Error refreshing Drive status:", e);
+    }
+  };
+
+  useEffect(() => {
+    const currentToken = getCachedDriveAccessToken();
+    if (currentToken) {
+      setDriveToken(currentToken);
+      refreshDriveStatus(currentToken);
+    }
+  }, []);
+
+  const handleConnectGoogleDrive = async () => {
+    setIsDriveConnecting(true);
+    setDriveFeedback(null);
+    setDriveProgressText('កំពុងតភ្ជាប់ទៅកាន់ Google Drive...');
+    try {
+      const res = await FirebaseAuthService.connectGoogleDrive();
+      if (res.success && res.accessToken) {
+        setDriveToken(res.accessToken);
+        setCachedDriveAccessToken(res.accessToken);
+        setDriveProgressText('កំពុងពិនិត្យទំហំផ្ទុក Cloud 15 GB លើ Drive...');
+        await refreshDriveStatus(res.accessToken);
+
+        // Check if there is an existing backup on Drive; if not, do an initial backup
+        const existing = await googleDriveService.findBackupFile(res.accessToken);
+        if (!existing) {
+          setDriveProgressText('កំពុងរក្សាទុកទិន្នន័យលើកដំបូងទៅ Google Drive...');
+          const syncRes = await googleDriveService.syncAllDataToDrive(res.accessToken);
+          setDriveBackupFile(syncRes.file);
+          const now = new Date().toISOString();
+          setLastDriveSyncTime(now);
+        }
+
+        setDriveFeedback({
+          type: 'success',
+          messageKhmer: 'បានភ្ជាប់ជាមួយ Google Drive ដោយជោគជ័យ! ទំហំផ្ទុក 15 GB ឥឡូវនេះត្រូវបានដំណើរការសម្រាប់ផ្ទុកទិន្នន័យ និងរូបភាពសាលា។',
+          messageEnglish: 'Google Drive connected successfully! 15 GB cloud storage is now active for your school records.'
+        });
+      } else {
+        setDriveFeedback({
+          type: 'error',
+          messageKhmer: res.errorDetail?.khmer || res.error || 'មិនអាចភ្ជាប់ទៅកាន់ Google Drive បានទេ',
+          messageEnglish: res.errorDetail?.english || 'Failed to connect to Google Drive.'
+        });
+      }
+    } catch (err: any) {
+      setDriveFeedback({
+        type: 'error',
+        messageKhmer: 'មានបញ្ហាក្នុងការភ្ជាប់ទៅ Google Drive: ' + (err?.message || ''),
+        messageEnglish: 'Error connecting to Google Drive: ' + (err?.message || '')
+      });
+    } finally {
+      setIsDriveConnecting(false);
+      setDriveProgressText(null);
+    }
+  };
+
+  const handleSyncToGoogleDrive = async () => {
+    const token = driveToken || getCachedDriveAccessToken();
+    if (!token) {
+      handleConnectGoogleDrive();
+      return;
+    }
+    setIsDriveSyncing(true);
+    setDriveFeedback(null);
+    try {
+      const res = await googleDriveService.syncAllDataToDrive(token, (msg) => {
+        setDriveProgressText(msg);
+      });
+      setDriveBackupFile(res.file);
+      const now = new Date().toISOString();
+      setLastDriveSyncTime(now);
+      await refreshDriveStatus(token);
+      setDriveFeedback({
+        type: 'success',
+        messageKhmer: `ទិន្នន័យសាលារៀនទាំងអស់ត្រូវបានរក្សាទុកលើ Google Drive ដោយជោគជ័យ (${res.file.sizeFormatted})!`,
+        messageEnglish: `All school records safely saved to Google Drive (${res.file.sizeFormatted}).`
+      });
+    } catch (err: any) {
+      setDriveFeedback({
+        type: 'error',
+        messageKhmer: 'បរាជ័យក្នុងការរក្សាទុកលើ Google Drive: ' + (err?.message || ''),
+        messageEnglish: 'Failed to sync with Google Drive: ' + (err?.message || '')
+      });
+    } finally {
+      setIsDriveSyncing(false);
+      setDriveProgressText(null);
+    }
+  };
+
+  const handleRestoreFromGoogleDrive = async () => {
+    const token = driveToken || getCachedDriveAccessToken();
+    if (!token) {
+      handleConnectGoogleDrive();
+      return;
+    }
+    if (!window.confirm('តើអ្នកពិតជាចង់ស្តារទិន្នន័យសាលាពី Google Drive មកវិញមែនទេ? ទិន្នន័យទាំងអស់ក្នុងប្រព័ន្ធនឹងត្រូវបានធ្វើបច្ចុប្បន្នភាពតាមឯកសារចុងក្រោយលើ Google Drive។')) {
+      return;
+    }
+    setIsDriveRestoring(true);
+    setDriveFeedback(null);
+    setDriveProgressText('កំពុងទាញយកទិន្នន័យពី Google Drive...');
+    try {
+      const res = await googleDriveService.restoreAllDataFromDrive(token, driveBackupFile?.id);
+      setDriveFeedback({
+        type: 'success',
+        messageKhmer: res.message + ' ប្រព័ន្ធនឹងដំណើរការឡើងវិញ...',
+        messageEnglish: res.message
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      setDriveFeedback({
+        type: 'error',
+        messageKhmer: 'បរាជ័យក្នុងការស្តារទិន្នន័យពី Google Drive: ' + (err?.message || ''),
+        messageEnglish: 'Failed to restore from Google Drive: ' + (err?.message || '')
+      });
+    } finally {
+      setIsDriveRestoring(false);
+      setDriveProgressText(null);
+    }
+  };
+
+  const handleToggleAutoSync = () => {
+    const nextVal = !autoSyncToDrive;
+    setAutoSyncToDrive(nextVal);
+    try {
+      localStorage.setItem('AUTO_SYNC_GOOGLE_DRIVE', nextVal ? 'true' : 'false');
+    } catch {}
+    if (nextVal) {
+      const token = driveToken || getCachedDriveAccessToken();
+      if (token) {
+        handleSyncToGoogleDrive();
+      }
+    }
+  };
+
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -423,6 +607,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleClearCache = () => {
     try {
       sessionStorage.clear();
+      storageService.cleanUpStorageQuota();
       setCacheClearedSuccess(true);
       setTimeout(() => setCacheClearedSuccess(false), 3000);
     } catch {
@@ -1149,6 +1334,262 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* ======================================================== */}
       {activeSubTab === 'DATABASE' && (
         <div className="space-y-6">
+
+          {/* Google Drive Cloud Storage & Sync Action Hub */}
+          <div className="bg-gradient-to-br from-indigo-950/70 via-slate-900/80 to-slate-950/90 backdrop-blur-xl p-6 rounded-3xl border border-indigo-500/30 shadow-2xl space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-5">
+              <div className="flex items-start space-x-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0 mt-0.5">
+                  <Cloud className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2.5 flex-wrap">
+                    <h3 className="text-base font-bold text-white font-battambang">
+                      ការផ្ទុកទិន្នន័យលើ Google Drive (Cloud Storage 15 GB & Auto-Sync)
+                    </h3>
+                    {driveToken ? (
+                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold font-battambang">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>បានភ្ជាប់ Google Drive</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold font-battambang">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>មិនទាន់ភ្ជាប់ Google Drive</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 font-battambang leading-relaxed">
+                    រក្សាទុកទិន្នន័យសាលារៀន (សិស្ស រូបថត គ្រូ ថ្នាក់ ពិន្ទុ វត្តមាន និងហិរញ្ញវត្ថុ) លើ Google Drive ដោយស្វ័យប្រវត្តិ។ មិនបារម្ភពីការបាត់បង់ទិន្នន័យ ឬកំណត់ទំហំ 5 MB របស់ Browser ទៀតឡើយ។
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Action / Auto Sync Indicator */}
+              <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+                {driveToken && (
+                  <button
+                    type="button"
+                    onClick={() => refreshDriveStatus(driveToken)}
+                    disabled={isDriveConnecting || isDriveSyncing}
+                    className="flex items-center space-x-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white rounded-xl text-xs font-bold font-battambang transition cursor-pointer"
+                    title="ពិនិត្យទំហំផ្ទុក Drive ឡើងវិញ"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isDriveConnecting ? 'animate-spin' : ''}`} />
+                    <span>ពិនិត្យ Storage</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Notification Feedback */}
+            {driveFeedback && (
+              <div className={`p-4 rounded-2xl border flex items-start justify-between gap-3 text-xs font-battambang ${
+                driveFeedback.type === 'success' ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200' :
+                driveFeedback.type === 'error' ? 'bg-rose-950/60 border-rose-500/40 text-rose-200' :
+                'bg-blue-950/60 border-blue-500/40 text-blue-200'
+              }`}>
+                <div className="space-y-1">
+                  <p className="font-semibold">{driveFeedback.messageKhmer}</p>
+                  <p className="text-[11px] opacity-80">{driveFeedback.messageEnglish}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDriveFeedback(null)}
+                  className="text-slate-400 hover:text-white shrink-0 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* In-Progress Spinner */}
+            {(isDriveConnecting || isDriveSyncing || isDriveRestoring) && driveProgressText && (
+              <div className="p-3.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center space-x-3 text-indigo-200 text-xs font-battambang animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
+                <span>{driveProgressText}</span>
+              </div>
+            )}
+
+            {/* Main Drive Dashboard Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Storage Quota Card */}
+              <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3.5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 font-battambang flex items-center space-x-1.5">
+                      <HardDrive className="w-4 h-4 text-emerald-400" />
+                      <span>ទំហំផ្ទុក Google Drive Cloud (15 GB Quota)</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                      {driveToken && driveQuota ? `${driveQuota.percentUsed}% បានប្រើ` : 'Cloud Storage'}
+                    </span>
+                  </div>
+
+                  {driveToken && driveQuota ? (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-baseline justify-between font-mono">
+                        <span className="text-lg font-bold text-white">
+                          {driveQuota.usageFormatted}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          លើទំហំសរុប {driveQuota.limitFormatted}
+                        </span>
+                      </div>
+                      <div className="w-full bg-white/10 h-2.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(2, Math.min(100, driveQuota.percentUsed))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-baseline justify-between font-mono">
+                        <span className="text-lg font-bold text-amber-300">
+                          {storageUsageKb} KB
+                        </span>
+                        <span className="text-xs text-rose-300">
+                          (ជាប់កម្រិត Local Storage 5-10 MB)
+                        </span>
+                      </div>
+                      <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                        <div className="bg-amber-500 h-full rounded-full" style={{ width: '100%' }} />
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-battambang">
+                        សូមភ្ជាប់ Google Drive ដើម្បីទទួលបានទំហំផ្ទុក 15,000,000 KB (15 GB) ឥតគិតថ្លៃ។
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Connection & File Metadata */}
+                <div className="pt-3 border-t border-white/10 space-y-1.5 text-xs font-battambang text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">គណនី Google:</span>
+                    <span className="font-medium text-white truncate max-w-[200px]">
+                      {driveToken ? (driveQuota?.userEmail || 'Google Drive Active') : 'មិនទាន់ភ្ជាប់'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">ឯកសារលើ Drive:</span>
+                    <span className="font-mono text-indigo-300">
+                      {driveBackupFile ? driveBackupFile.sizeFormatted : (driveToken ? 'កំពុងបង្កើត...' : 'មិនទាន់មាន')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">សមកាលកម្មចុងក្រោយ:</span>
+                    <span className="text-slate-300">
+                      {lastDriveSyncTime ? new Date(lastDriveSyncTime).toLocaleDateString('km-KH') + ' ' + new Date(lastDriveSyncTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'មិនទាន់មាន'}
+                    </span>
+                  </div>
+
+                  {driveBackupFile?.webViewLink && (
+                    <div className="pt-1 text-right">
+                      <a
+                        href={driveBackupFile.webViewLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center space-x-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                      >
+                        <span>បើកមើលឯកសារលើ Google Drive</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Controls Card */}
+              <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 font-battambang flex items-center space-x-1.5">
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
+                      <span>សកម្មភាពគ្រប់គ្រង Google Drive</span>
+                    </span>
+
+                    {/* Auto Sync Toggle */}
+                    {driveToken && (
+                      <button
+                        type="button"
+                        onClick={handleToggleAutoSync}
+                        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold font-battambang border transition cursor-pointer ${
+                          autoSyncToDrive 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                            : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                        }`}
+                        title="បើក/បិទ ការសមកាលកម្មស្វ័យប្រវត្តិ"
+                      >
+                        {autoSyncToDrive ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4" />}
+                        <span>Auto-Sync: {autoSyncToDrive ? 'បើក' : 'បិទ'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-300 font-battambang leading-relaxed">
+                    {driveToken 
+                      ? 'អ្នកអាចធ្វើសមកាលកម្មទិន្នន័យភ្លាមៗ ឬស្តារទិន្នន័យពី Google Drive មកវិញគ្រប់ពេលវេលា។' 
+                      : 'ចុចប៊ូតុងខាងក្រោមដើម្បីភ្ជាប់គណនី Google របស់អ្នក និងបើកដំណើរការទំហំផ្ទុក 15 GB សម្រាប់ទិន្នន័យសាលា។'}
+                  </p>
+                </div>
+
+                {/* Buttons based on connection state */}
+                <div className="space-y-2.5 pt-2">
+                  {!driveToken ? (
+                    <button
+                      type="button"
+                      id="btn-connect-google-drive"
+                      onClick={handleConnectGoogleDrive}
+                      disabled={isDriveConnecting}
+                      className="w-full flex items-center justify-center space-x-2.5 px-4 py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-indigo-500/25 font-battambang cursor-pointer disabled:opacity-50"
+                    >
+                      <Cloud className="w-4 h-4" />
+                      <span>{isDriveConnecting ? 'កំពុងភ្ជាប់ Google Drive...' : 'ភ្ជាប់ Google Drive ឥឡូវនេះ (15 GB Cloud Storage)'}</span>
+                    </button>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {/* Sync to Drive Button */}
+                      <button
+                        type="button"
+                        id="btn-sync-to-google-drive"
+                        onClick={handleSyncToGoogleDrive}
+                        disabled={isDriveSyncing || isDriveRestoring}
+                        className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-500/25 font-battambang cursor-pointer disabled:opacity-50"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>{isDriveSyncing ? 'កំពុងរក្សាទុក...' : 'រក្សាទុកទៅ Drive (Sync)'}</span>
+                      </button>
+
+                      {/* Restore from Drive Button */}
+                      <button
+                        type="button"
+                        id="btn-restore-from-google-drive"
+                        onClick={handleRestoreFromGoogleDrive}
+                        disabled={isDriveSyncing || isDriveRestoring}
+                        className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-emerald-500/25 font-battambang cursor-pointer disabled:opacity-50"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>{isDriveRestoring ? 'កំពុងស្តារ...' : 'ស្តារពី Drive (Restore)'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Optimize local cache quick action */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-battambang pt-1">
+                    <span>ទំហំ Local Cache បច្ចុប្បន្ន: <b className="text-white font-mono">{storageUsageKb} KB</b></span>
+                    <button
+                      type="button"
+                      onClick={handleClearCache}
+                      className="text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
+                    >
+                      {cacheClearedSuccess ? '✓ បានសម្អាត!' : 'សម្អាត Local Cache'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Database Summary Metric Grid */}
           <div className="bg-slate-900/60 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-xl space-y-4">
@@ -1901,18 +2342,101 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <p className="text-[11px] text-emerald-300">✓ សកម្មពេញលេញគ្រប់ Module</p>
               </div>
 
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2">
-                <p className="text-slate-400 flex items-center space-x-1.5">
-                  <Cpu className="w-4 h-4 text-indigo-400" />
-                  <span>ទំហំផ្ទុក Storage (Memory Gauge)</span>
-                </p>
-                <p className="font-bold text-white text-sm font-mono">{storageUsageKb} KB / 5120 KB</p>
-                <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-indigo-500 h-full rounded-full transition-all"
-                    style={{ width: `${Math.min(100, Math.max(2, (storageUsageKb / 5120) * 100))}%` }}
-                  />
+              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2.5 col-span-1 sm:col-span-2 lg:col-span-1">
+                <div className="flex items-center justify-between gap-1.5">
+                  <p className="text-slate-300 font-semibold text-xs flex items-center space-x-1.5">
+                    <Cpu className="w-4 h-4 text-indigo-400" />
+                    <span>ទំហំផ្ទុក Storage (Memory Gauge)</span>
+                  </p>
+                  {driveToken ? (
+                    <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                      <Cloud className="w-3 h-3 text-emerald-400" />
+                      <span>Drive 15 GB Active</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                      <span>Local Limit</span>
+                    </span>
+                  )}
                 </div>
+
+                {driveToken ? (
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between text-xs">
+                      <span className="font-bold text-white font-mono">
+                        {driveQuota ? `${driveQuota.usageFormatted} / ${driveQuota.limitFormatted}` : 'Google Drive (15 GB)'}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-300 font-bold">
+                        {driveQuota ? `${driveQuota.percentUsed}% បានប្រើ` : 'Cloud Synced'}
+                      </span>
+                    </div>
+                    <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${Math.max(2, Math.min(100, driveQuota?.percentUsed || 2))}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="truncate max-w-[150px]">
+                        ☁️ {driveQuota?.userEmail || 'Google Drive'}
+                      </span>
+                      <span className="text-indigo-300 font-mono">
+                        Cache: {storageUsageKb} KB
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleSyncToGoogleDrive}
+                        disabled={isDriveSyncing}
+                        className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer"
+                        title="ធ្វើសមកាលកម្មទិន្នន័យទៅ Google Drive"
+                      >
+                        <Upload className="w-3 h-3 text-indigo-300" />
+                        <span>{isDriveSyncing ? 'Syncing...' : 'Sync to Drive'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRestoreFromGoogleDrive}
+                        disabled={isDriveRestoring}
+                        className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer"
+                        title="ស្តារទិន្នន័យពី Google Drive"
+                      >
+                        <Download className="w-3 h-3 text-emerald-300" />
+                        <span>{isDriveRestoring ? 'Restoring...' : 'Restore'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between text-xs">
+                      <span className="font-bold text-amber-300 font-mono">
+                        {storageUsageKb} KB
+                      </span>
+                      <span className="text-[10px] font-mono text-rose-300">
+                        Browser Memory ពេញ
+                      </span>
+                    </div>
+                    <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-amber-500 h-full rounded-full transition-all"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-tight">
+                      ទំហំ Browser Local Storage ជិតពេញ។ សូមភ្ជាប់ជាមួយ Google Drive ដើម្បីទទួលបានទំហំផ្ទុក 15 GB ឥតគិតថ្លៃ។
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogleDrive}
+                      disabled={isDriveConnecting}
+                      className="w-full flex items-center justify-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-[10px] font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      <Cloud className="w-3 h-3" />
+                      <span>{isDriveConnecting ? 'កំពុងភ្ជាប់ Drive...' : 'ភ្ជាប់ Google Drive (15 GB Storage)'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2">

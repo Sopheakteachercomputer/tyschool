@@ -21,20 +21,28 @@ import {
   type Auth
 } from "firebase/auth";
 
-// Your web app's Firebase configuration
+import firebaseAppletConfig from "../../firebase-applet-config.json";
+
+// Your web app's Firebase configuration from provisioned project
 export const firebaseConfig = {
-  apiKey: "AIzaSyCDAMriSRJIZts7qT5QCrq_WTysUrgQwYE",
-  authDomain: "tyschool-8e14f.firebaseapp.com",
-  projectId: "tyschool-8e14f",
-  storageBucket: "tyschool-8e14f.firebasestorage.app",
-  messagingSenderId: "597970551722",
-  appId: "1:597970551722:web:d3272b2476f1f6b25321d3",
-  measurementId: "G-LFDRZ1EFB5"
+  ...firebaseAppletConfig
 };
 
 // Initialize Firebase
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth: Auth = getAuth(app);
+
+// In-memory cache for OAuth access token (per security mandate: never in localStorage/sessionStorage)
+let cachedDriveAccessToken: string | null = null;
+let isDriveSigningIn = false;
+
+export const getCachedDriveAccessToken = (): string | null => {
+  return cachedDriveAccessToken;
+};
+
+export const setCachedDriveAccessToken = (token: string | null) => {
+  cachedDriveAccessToken = token;
+};
 
 // Automatically configure persistent session state using browserLocalPersistence
 let persistenceInitialized = false;
@@ -293,20 +301,70 @@ export const FirebaseAuthService = {
   signInWithGoogle: async () => {
     try {
       await ensureLocalPersistence();
+      isDriveSigningIn = true;
       const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
       provider.setCustomParameters({ prompt: 'select_account' });
       const userCredential = await signInWithPopup(auth, provider);
-      return { success: true, user: userCredential.user, error: null, errorDetail: null };
+      const credential = GoogleAuthProvider.credentialFromResult(userCredential);
+      if (credential?.accessToken) {
+        cachedDriveAccessToken = credential.accessToken;
+      }
+      return { 
+        success: true, 
+        user: userCredential.user, 
+        accessToken: credential?.accessToken || null,
+        error: null, 
+        errorDetail: null 
+      };
     } catch (err: any) {
       console.warn("Firebase Google SignIn notice:", err?.message || err);
       const errorDetail = parseFirebaseAuthError(err);
       return { 
         success: false, 
         user: null, 
+        accessToken: null,
         error: errorDetail.khmer,
         code: err?.code,
         errorDetail
       };
+    } finally {
+      isDriveSigningIn = false;
+    }
+  },
+
+  connectGoogleDrive: async () => {
+    try {
+      await ensureLocalPersistence();
+      isDriveSigningIn = true;
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const userCredential = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(userCredential);
+      if (credential?.accessToken) {
+        cachedDriveAccessToken = credential.accessToken;
+      }
+      return {
+        success: true,
+        user: userCredential.user,
+        accessToken: credential?.accessToken || null,
+        error: null,
+        errorDetail: null
+      };
+    } catch (err: any) {
+      console.warn("Connect Google Drive notice:", err?.message || err);
+      const errorDetail = parseFirebaseAuthError(err);
+      return {
+        success: false,
+        user: null,
+        accessToken: null,
+        error: errorDetail.khmer,
+        code: err?.code,
+        errorDetail
+      };
+    } finally {
+      isDriveSigningIn = false;
     }
   },
 
@@ -383,11 +441,17 @@ export const FirebaseAuthService = {
     try {
       await ensureLocalPersistence();
       const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
       provider.setCustomParameters({ prompt: 'select_account' });
       const userCredential = await linkWithPopup(targetUser, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(userCredential);
+      if (credential?.accessToken) {
+        cachedDriveAccessToken = credential.accessToken;
+      }
       return { 
         success: true, 
         user: userCredential.user, 
+        accessToken: credential?.accessToken || null,
         error: null, 
         errorDetail: null 
       };
@@ -453,6 +517,11 @@ export const FirebaseAuthService = {
   },
 
   onAuthChanged: (callback: (user: FirebaseUser | null) => void) => {
-    return onAuthStateChanged(auth, callback);
+    return onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        cachedDriveAccessToken = null;
+      }
+      callback(user);
+    });
   }
 };

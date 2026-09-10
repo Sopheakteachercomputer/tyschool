@@ -1,12 +1,11 @@
 {
-  "projectId": "studio-4692154730-c0503",
-  "appId": "1:576505419697:web:41309a22d5eb84db05cf90",
-  "apiKey": "AIzaSyD4ts2HRd09bDNavVBsJM1wZFivLzZiyEA",
-  "authDomain": "studio-4692154730-c0503.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-cambodianschoolm-6e56ec65-84b2-4f5b-9a31-d0cd188944f5",
-  "storageBucket": "studio-4692154730-c0503.firebasestorage.app",
-  "messagingSenderId": "576505419697",
+  "projectId": "project-5fac36a0-3148-44df-bff",
+  "appId": "1:675181340670:web:3afd899b141dfe597ec2af",
+  "apiKey": "AIzaSyAYoUB2fCxg1saQEyhFogAXUYOsQpGllt0",
+  "authDomain": "project-5fac36a0-3148-44df-bff.firebaseapp.com",
+  "storageBucket": "project-5fac36a0-3148-44df-bff.firebasestorage.app",
+  "messagingSenderId": "675181340670",
   "measurementId": "",
-  "oAuthClientId": "576505419697-ludup96gr069h8u11ik29s16445ttuai.apps.googleusercontent.com",
+  "oAuthClientId": "675181340670-k69e1padna9leslnsg7cu7b6739bdrq9.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

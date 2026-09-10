@@ -2435,6 +2435,9 @@ export const StorageService = {
   importBackup: (jsonString: string): boolean => {
     return StorageService.importFullBackup(jsonString);
   },
+  cleanUpStorageQuota: () => {
+    cleanUpStorageQuota();
+  },
 
   // Aliases for compatibility
   getSchoolProfile: (): SchoolProfile => StorageService.getProfile(),
