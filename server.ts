@@ -135,17 +135,22 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Health check endpoints (for Cloud Run and external monitoring probes)
-  app.get("/health", (_req, res) => {
-    res.json({
+  // Comprehensive health check endpoints for Cloud Run, Kubernetes, and uptime probes
+  const sendHealthResponse = (_req: express.Request, res: express.Response) => {
+    res.status(200).json({
       status: "ok",
       timestamp: new Date().toISOString(),
       service: "Cambodian School Management System API",
     });
-  });
+  };
+
+  app.get("/health", sendHealthResponse);
+  app.get("/healthz", sendHealthResponse);
+  app.get("/_health", sendHealthResponse);
+  app.get("/ping", sendHealthResponse);
 
   app.get("/api/health", (_req, res) => {
-    res.json({
+    res.status(200).json({
       status: "ok",
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       timestamp: new Date().toISOString(),
@@ -699,39 +704,68 @@ async function startServer() {
   });
 
   // Determine whether to serve Vite dev middleware or static production build
-  // In Cloud Run or production builds, serve compiled static files from dist/
-  const isExplicitDev = process.env.NODE_ENV === "development";
-  const distPathFromCwd = path.join(process.cwd(), "dist");
-  const currentDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
-  const distPathFromDir = path.resolve(currentDir, ".");
-  const distPath = fs.existsSync(path.join(distPathFromCwd, "index.html"))
-    ? distPathFromCwd
-    : fs.existsSync(path.join(distPathFromDir, "index.html"))
-    ? distPathFromDir
-    : distPathFromCwd;
+  // Production detection:
+  // 1. Running compiled bundle (dist/server.cjs)
+  // 2. Explicit NODE_ENV === "production"
+  // 3. npm start lifecycle (npm_lifecycle_event === "start")
+  // 4. Built dist/index.html exists and NOT running explicit dev server (DEV_MODE !== "true")
+  const isRunningFromDist =
+    typeof __filename !== "undefined" &&
+    (__filename.endsWith(".cjs") || __filename.includes("dist"));
+  const isExplicitDev = process.env.DEV_MODE === "true";
 
-  const hasBuiltDist = fs.existsSync(path.join(distPath, "index.html"));
-  const isProduction = !isExplicitDev && (process.env.NODE_ENV === "production" || hasBuiltDist);
+  // Resolve built client directory (dist/)
+  const distDirCandidates = [
+    path.join(process.cwd(), "dist"),
+    typeof __dirname !== "undefined" ? path.resolve(__dirname, ".") : "",
+    typeof __dirname !== "undefined" ? path.resolve(__dirname, "..", "dist") : "",
+  ].filter(Boolean);
+
+  let distPath = path.join(process.cwd(), "dist");
+  let hasBuiltDist = false;
+  for (const cand of distDirCandidates) {
+    if (fs.existsSync(path.join(cand, "index.html"))) {
+      distPath = cand;
+      hasBuiltDist = true;
+      break;
+    }
+  }
+
+  const isProduction =
+    isRunningFromDist ||
+    process.env.NODE_ENV === "production" ||
+    process.env.npm_lifecycle_event === "start" ||
+    (!isExplicitDev && hasBuiltDist);
 
   if (!isProduction) {
+    console.log("[Development] Initializing Vite middleware for dynamic development...");
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: process.env.DISABLE_HMR !== "true" },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
     console.log(`[Production] Serving static files from: ${distPath}`);
-    app.use(express.static(distPath));
-    app.use("/tyschool", express.static(distPath));
+    app.use(express.static(distPath, { maxAge: "1d", index: "index.html" }));
+    app.use("/tyschool", express.static(distPath, { maxAge: "1d", index: "index.html" }));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send("Application index.html not found. Please build the client using 'npm run build'.");
+      }
     });
   }
 
   // Create HTTP Server & WebSocket Server for Gemini Live API Voice Conversations
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: "/api/ai/live" });
+
+  wss.on("error", (err: any) => {
+    console.error("Gemini Live WebSocket Server Error:", err);
+  });
 
   wss.on("connection", async (clientWs: WebSocket) => {
     console.log("Client connected to Gemini Live Voice WebSocket.");
@@ -830,6 +864,12 @@ async function startServer() {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+  process.on("unhandledRejection", (reason, promise) => {
+    console.warn("Server unhandledRejection:", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("Server uncaughtException:", err);
+  });
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Express + Vite Full-Stack Server running at http://0.0.0.0:${PORT} (Production: ${isProduction})`);
